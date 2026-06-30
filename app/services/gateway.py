@@ -11,6 +11,10 @@ class GatewayService:
 
     valid_models = ("mock-model-v1",)
 
+    def __init__(self, provider_adapter=None):
+        self.provider_adapter = provider_adapter 
+        
+
     async def generate(self, request: GenerateRequest, request_id: str) -> GenerateResponse:
         if request.model not in self.valid_models:
             raise InvalidModelError(
@@ -18,7 +22,7 @@ class GatewayService:
                 valid_models=self.valid_models,
             )
 
-        provider_adapter = MockProviderAdapter()
+        provider_adapter = self.provider_adapter 
         provider_name = provider_adapter.provider_name
         log_event(
             "generation_started",

@@ -10,6 +10,28 @@ from app.providers.mock import MockProviderAdapter
 from app.schemas.generation import GenerateRequest
 from app.services.gateway import GatewayService
 
+class CapturingProviderAdapter:
+    provider_name = "test"
+
+    def __init__(self):
+        self.seen_request_id = None
+
+    async def generate(self, request, request_id):
+        self.seen_request_id = request_id
+        return ProviderResult(
+            request_id=request_id,
+            provider=self.provider_name,
+            model=request.model,
+            output="test output",
+            input_tokens=1,
+            output_tokens=2,
+        )
+
+class FailingProviderAdapter:
+    provider_name = "failing_mock"
+
+    async def generate(self, request, request_id):
+        raise ProviderError("provider unavailable")
 
 def make_request(model: str = "mock-model-v1") -> GenerateRequest:
     return GenerateRequest(
@@ -29,8 +51,8 @@ def test_generate_returns_public_response() -> None:
     assert response.model == "mock-model-v1"
     assert response.output
     assert response.latency_ms >= 0
-    assert response.input_tokens is not None
-    assert response.output_tokens is not None
+    assert response.input_tokens >= 0
+    assert response.output_tokens >= 0
 
 
 def test_generate_unsupported_model_raises_invalid_model_error() -> None:
@@ -91,3 +113,9 @@ def test_generate_provider_error_logs_failure(monkeypatch, caplog) -> None:
             "error_type": "ProviderError",
         }
     ]
+adapter = CapturingProviderAdapter()
+service = GatewayService(provider_adapter=adapter)
+
+response = asyncio.run(service.generate(make_request(), "request-abc"))
+
+assert adapter.seen_request_id == "request-abc"
