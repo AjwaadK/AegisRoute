@@ -6,32 +6,35 @@ import pytest
 
 from app.core.logging import LOGGER_NAME
 from app.errors import InvalidModelError, ProviderError
-from app.providers.mock import MockProviderAdapter
-from app.schemas.generation import GenerateRequest
+from app.providers.base import ProviderAdapter
+from app.schemas.generation import GenerateRequest, ProviderResult
 from app.services.gateway import GatewayService
 
-class CapturingProviderAdapter:
-    provider_name = "test"
 
-    def __init__(self):
-        self.seen_request_id = None
+class CapturingProviderAdapter(ProviderAdapter):
+    provider_name = "capturing"
 
-    async def generate(self, request, request_id):
-        self.seen_request_id = request_id
+    def __init__(self) -> None:
+        self.request_id: str | None = None
+
+    async def generate(self, request: GenerateRequest, request_id: str) -> ProviderResult:
+        self.request_id = request_id
         return ProviderResult(
             request_id=request_id,
             provider=self.provider_name,
             model=request.model,
-            output="test output",
+            output="captured response",
             input_tokens=1,
             output_tokens=2,
         )
 
-class FailingProviderAdapter:
-    provider_name = "failing_mock"
 
-    async def generate(self, request, request_id):
+class FailingProviderAdapter(ProviderAdapter):
+    provider_name = "failing"
+
+    async def generate(self, request: GenerateRequest, request_id: str) -> ProviderResult:
         raise ProviderError("provider unavailable")
+
 
 def make_request(model: str = "mock-model-v1") -> GenerateRequest:
     return GenerateRequest(
@@ -44,8 +47,9 @@ def make_request(model: str = "mock-model-v1") -> GenerateRequest:
 
 def test_generate_returns_public_response() -> None:
     request_id = "request-123"
+    service = GatewayService(provider_adapter=CapturingProviderAdapter())
 
-    response = asyncio.run(GatewayService().generate(request=make_request(), request_id=request_id))
+    response = asyncio.run(service.generate(request=make_request(), request_id=request_id))
 
     assert response.request_id == request_id
     assert response.model == "mock-model-v1"
@@ -57,44 +61,37 @@ def test_generate_returns_public_response() -> None:
 
 def test_generate_unsupported_model_raises_invalid_model_error() -> None:
     request = make_request(model="unknown-model")
+    service = GatewayService(provider_adapter=CapturingProviderAdapter())
 
     with pytest.raises(InvalidModelError) as exc_info:
-        asyncio.run(GatewayService().generate(request=request, request_id="request-123"))
+        asyncio.run(service.generate(request=request, request_id="request-123"))
 
     assert exc_info.value.requested_model == "unknown-model"
     assert exc_info.value.valid_models == ("mock-model-v1",)
 
 
 def test_generate_response_does_not_expose_provider() -> None:
-    response = asyncio.run(GatewayService().generate(request=make_request(), request_id="request-123"))
+    service = GatewayService(provider_adapter=CapturingProviderAdapter())
+
+    response = asyncio.run(service.generate(request=make_request(), request_id="request-123"))
 
     assert "provider" not in response.model_dump()
 
 
-def test_generate_passes_request_id_to_provider(monkeypatch) -> None:
-    seen_request_id = None
+def test_generate_passes_request_id_to_provider() -> None:
+    provider_adapter = CapturingProviderAdapter()
+    service = GatewayService(provider_adapter=provider_adapter)
 
-    async def capture_generate(self, request, request_id):
-        nonlocal seen_request_id
-        seen_request_id = request_id
-        return await original_generate(self, request=request, request_id=request_id)
+    asyncio.run(service.generate(request=make_request(), request_id="request-abc"))
 
-    original_generate = MockProviderAdapter.generate
-    monkeypatch.setattr(MockProviderAdapter, "generate", capture_generate)
-
-    asyncio.run(GatewayService().generate(request=make_request(), request_id="request-abc"))
-
-    assert seen_request_id == "request-abc"
+    assert provider_adapter.request_id == "request-abc"
 
 
-def test_generate_provider_error_logs_failure(monkeypatch, caplog) -> None:
-    async def fail_generate(self, request, request_id):
-        raise ProviderError("provider unavailable")
-
-    monkeypatch.setattr(MockProviderAdapter, "generate", fail_generate)
+def test_generate_provider_error_logs_failure(caplog) -> None:
+    service = GatewayService(provider_adapter=FailingProviderAdapter())
 
     with caplog.at_level(logging.INFO, logger=LOGGER_NAME), pytest.raises(ProviderError):
-        asyncio.run(GatewayService().generate(request=make_request(), request_id="request-123"))
+        asyncio.run(service.generate(request=make_request(), request_id="request-123"))
 
     failure_logs = []
     for record in caplog.records:
@@ -108,14 +105,8 @@ def test_generate_provider_error_logs_failure(monkeypatch, caplog) -> None:
             "event": "generation_failed",
             "request_id": "request-123",
             "model": "mock-model-v1",
-            "provider": "mock",
+            "provider": "failing",
             "status": "failed",
             "error_type": "ProviderError",
         }
     ]
-adapter = CapturingProviderAdapter()
-service = GatewayService(provider_adapter=adapter)
-
-response = asyncio.run(service.generate(make_request(), "request-abc"))
-
-assert adapter.seen_request_id == "request-abc"

@@ -2,6 +2,7 @@ from time import perf_counter
 
 from app.core.logging import log_event
 from app.errors import InvalidModelError, ProviderError
+from app.providers.base import ProviderAdapter
 from app.providers.mock import MockProviderAdapter
 from app.schemas.generation import GenerateRequest, GenerateResponse
 
@@ -11,9 +12,8 @@ class GatewayService:
 
     valid_models = ("mock-model-v1",)
 
-    def __init__(self, provider_adapter=None):
-        self.provider_adapter = provider_adapter 
-        
+    def __init__(self, provider_adapter: ProviderAdapter | None = None) -> None:
+        self.provider_adapter = provider_adapter or MockProviderAdapter()
 
     async def generate(self, request: GenerateRequest, request_id: str) -> GenerateResponse:
         if request.model not in self.valid_models:
@@ -22,7 +22,7 @@ class GatewayService:
                 valid_models=self.valid_models,
             )
 
-        provider_adapter = self.provider_adapter 
+        provider_adapter = self.provider_adapter
         provider_name = provider_adapter.provider_name
         log_event(
             "generation_started",
