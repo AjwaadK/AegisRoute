@@ -9,7 +9,7 @@ from app.schemas.generation import GenerateRequest, GenerateResponse
 class GatewayService:
     """Coordinates model validation, provider selection, and response mapping."""
 
-    valid_models = ["mock-model-v1"]
+    valid_models = ("mock-model-v1",)
 
     async def generate(self, request: GenerateRequest, request_id: str) -> GenerateResponse:
         if request.model not in self.valid_models:
