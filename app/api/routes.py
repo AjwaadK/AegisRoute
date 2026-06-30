@@ -1,14 +1,13 @@
-from time import perf_counter
 from uuid import uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
-from app.core.logging import log_event
-from app.providers.mock import MockProviderAdapter
+from app.errors import InvalidModelError
 from app.schemas.generation import GenerateRequest, GenerateResponse
+from app.services.gateway import GatewayService
 
 router = APIRouter()
-provider_adapter = MockProviderAdapter()
+gateway_service = GatewayService()
 
 
 @router.get("/health")
@@ -19,23 +18,14 @@ async def health() -> dict[str, str]:
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(request: GenerateRequest) -> GenerateResponse:
     request_id = str(uuid4())
-    log_event(
-        "generation_started",
-        request_id=request_id,
-        provider=provider_adapter.provider_name,
-        model=request.model,
-        status="started",
-    )
-    start = perf_counter()
-    response = await provider_adapter.generate(request=request, request_id=request_id)
-    latency_ms = int((perf_counter() - start) * 1000)
-    normalized_response = response.model_copy(update={"latency_ms": latency_ms})
-    log_event(
-        "generation_completed",
-        request_id=request_id,
-        provider=normalized_response.provider,
-        model=normalized_response.model,
-        status="completed",
-        latency_ms=latency_ms,
-    )
-    return normalized_response
+    try:
+        return await gateway_service.generate(request=request, request_id=request_id)
+    except InvalidModelError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_model",
+                "requested_model": exc.requested_model,
+                "valid_models": exc.valid_models,
+            },
+        ) from exc
