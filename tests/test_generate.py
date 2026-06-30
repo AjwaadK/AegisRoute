@@ -17,7 +17,7 @@ def test_generate_success() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["provider"] == "mock"
+    assert "provider" not in body
     assert body["model"] == payload["model"]
     assert body["output"].startswith("mock_response:")
     assert isinstance(body["request_id"], str)
@@ -26,7 +26,24 @@ def test_generate_success() -> None:
     assert body["output_tokens"] >= 1
 
 
-def test_generate_validation_messages_required() -> None:
+def test_generate_invalid_model() -> None:
+    payload = {
+        "model": "unknown-model",
+        "messages": [{"role": "user", "content": "Hello router"}],
+        "max_tokens": 64,
+        "temperature": 0.5,
+    }
+    response = client.post("/generate", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "error": "invalid_model",
+        "requested_model": "unknown-model",
+        "valid_models": ["mock-model-v1"],
+    }
+
+
+def test_generate_invalid_schema_messages_required() -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [],
@@ -37,7 +54,7 @@ def test_generate_validation_messages_required() -> None:
     assert response.status_code == 422
 
 
-def test_generate_validation_content_not_empty() -> None:
+def test_generate_invalid_schema_content_not_empty() -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [{"role": "user", "content": "   "}],
@@ -48,7 +65,7 @@ def test_generate_validation_content_not_empty() -> None:
     assert response.status_code == 422
 
 
-def test_generate_validation_max_tokens_bounds() -> None:
+def test_generate_invalid_schema_max_tokens_bounds() -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [{"role": "user", "content": "Hi"}],
@@ -59,7 +76,7 @@ def test_generate_validation_max_tokens_bounds() -> None:
     assert response.status_code == 422
 
 
-def test_generate_validation_temperature_bounds() -> None:
+def test_generate_invalid_schema_temperature_bounds() -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [{"role": "user", "content": "Hi"}],
