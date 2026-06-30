@@ -26,6 +26,19 @@ def test_generate_success() -> None:
     assert body["output_tokens"] >= 1
 
 
+def test_generate_success_with_default_options() -> None:
+    payload = {
+        "model": "mock-model-v1",
+        "messages": [{"role": "user", "content": "Hello router"}],
+    }
+    response = client.post("/generate", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model"] == payload["model"]
+    assert body["output"].startswith("mock_response:")
+
+
 def test_generate_invalid_model() -> None:
     payload = {
         "model": "unknown-model",
@@ -140,3 +153,4 @@ def test_generate_provider_error_logs_generation_failed(monkeypatch, caplog) -> 
 
     assert response.status_code == 502
     assert any('"event": "generation_failed"' in record.message for record in caplog.records)
+    assert any('"error_type": "ProviderError"' in record.message for record in caplog.records)

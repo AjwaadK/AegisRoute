@@ -40,6 +40,7 @@ class GatewayService:
                 provider=provider_name,
                 model=request.model,
                 status="failed",
+                error_type="ProviderError",
             )
             raise
         latency_ms = int((perf_counter() - start) * 1000)
