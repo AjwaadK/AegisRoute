@@ -1,7 +1,7 @@
 from time import perf_counter
 
 from app.core.logging import log_event
-from app.errors import InvalidModelError
+from app.errors import InvalidModelError, ProviderError
 from app.providers.mock import MockProviderAdapter
 from app.schemas.generation import GenerateRequest, GenerateResponse
 
@@ -28,10 +28,21 @@ class GatewayService:
             status="started",
         )
         start = perf_counter()
-        provider_result = await provider_adapter.generate(
-            request=request,
-            request_id=request_id,
-        )
+        try:
+            provider_result = await provider_adapter.generate(
+                request=request,
+                request_id=request_id,
+            )
+        except ProviderError:
+            log_event(
+                "generation_failed",
+                request_id=request_id,
+                provider=provider_name,
+                model=request.model,
+                status="failed",
+                error_type="ProviderError",
+            )
+            raise
         latency_ms = int((perf_counter() - start) * 1000)
         log_event(
             "generation_completed",
