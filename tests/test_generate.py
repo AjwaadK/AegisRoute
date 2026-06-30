@@ -85,3 +85,58 @@ def test_generate_invalid_schema_temperature_bounds() -> None:
     }
     response = client.post("/generate", json=payload)
     assert response.status_code == 422
+
+
+def test_generate_invalid_schema_model_not_whitespace() -> None:
+    payload = {
+        "model": "   ",
+        "messages": [{"role": "user", "content": "Hi"}],
+        "max_tokens": 64,
+        "temperature": 0.5,
+    }
+    response = client.post("/generate", json=payload)
+    assert response.status_code == 422
+
+
+def test_generate_provider_error_returns_bad_gateway(monkeypatch) -> None:
+    from app.errors import ProviderError
+    from app.providers.mock import MockProviderAdapter
+
+    async def fail_generate(self, request, request_id):
+        raise ProviderError("provider unavailable")
+
+    monkeypatch.setattr(MockProviderAdapter, "generate", fail_generate)
+    payload = {
+        "model": "mock-model-v1",
+        "messages": [{"role": "user", "content": "Hi"}],
+        "max_tokens": 64,
+        "temperature": 0.5,
+    }
+    response = client.post("/generate", json=payload)
+    assert response.status_code == 502
+    assert response.json()["detail"] == {"error": "provider_error"}
+
+
+def test_generate_provider_error_logs_generation_failed(monkeypatch, caplog) -> None:
+    import logging
+
+    from app.core.logging import LOGGER_NAME
+    from app.errors import ProviderError
+    from app.providers.mock import MockProviderAdapter
+
+    async def fail_generate(self, request, request_id):
+        raise ProviderError("provider unavailable")
+
+    monkeypatch.setattr(MockProviderAdapter, "generate", fail_generate)
+    payload = {
+        "model": "mock-model-v1",
+        "messages": [{"role": "user", "content": "Hi"}],
+        "max_tokens": 64,
+        "temperature": 0.5,
+    }
+
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        response = client.post("/generate", json=payload)
+
+    assert response.status_code == 502
+    assert any('"event": "generation_failed"' in record.message for record in caplog.records)
