@@ -33,4 +33,5 @@ async def generate(request: GenerateRequest) -> GenerateResponse:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"error": "provider_error"},
+                    "message": "Upstream provider failed"},
         ) from exc
