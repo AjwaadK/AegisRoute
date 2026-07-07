@@ -127,7 +127,10 @@ def test_generate_provider_error_returns_bad_gateway(monkeypatch) -> None:
     }
     response = client.post("/generate", json=payload)
     assert response.status_code == 502
-    assert response.json()["detail"] == {"error": "provider_error"}
+    assert response.json()["detail"] == {
+    "error": "provider_error",
+    "message": "Upstream provider failed",
+}
 
 
 def test_generate_provider_error_logs_generation_failed(monkeypatch, caplog) -> None:
