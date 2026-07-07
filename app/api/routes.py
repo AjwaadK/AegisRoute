@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.errors import InvalidModelError
+from app.errors import InvalidModelError, ProviderError
 from app.schemas.generation import GenerateRequest, GenerateResponse
 from app.services.gateway import GatewayService
 
@@ -28,4 +28,9 @@ async def generate(request: GenerateRequest) -> GenerateResponse:
                 "requested_model": exc.requested_model,
                 "valid_models": exc.valid_models,
             },
+        ) from exc
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"error": "provider_error"},
         ) from exc
