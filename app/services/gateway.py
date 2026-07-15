@@ -7,7 +7,7 @@ from app.core.logging import log_event
 from app.errors import InvalidModelError, ProviderError
 from app.providers.base import ProviderAdapter
 from app.providers.mock import MockProviderAdapter
-from app.repositories.request_log import InMemoryRequestLogRepository, RequestLogRepository
+from app.repositories.request_log import NoopRequestLogRepository, RequestLogRepository
 from app.schemas.generation import GenerateRequest, GenerateResponse
 
 
@@ -22,7 +22,7 @@ class GatewayService:
         request_log_repository: RequestLogRepository | None = None,
     ) -> None:
         self.provider_adapter = provider_adapter or MockProviderAdapter()
-        self.request_log_repository = request_log_repository or InMemoryRequestLogRepository()
+        self.request_log_repository = request_log_repository or NoopRequestLogRepository()
 
     async def generate(self, request: GenerateRequest, request_id: str) -> GenerateResponse:
         if request.model not in self.valid_models:
@@ -50,11 +50,9 @@ class GatewayService:
             action=self.request_log_repository.add_event(
                 request_id=request_id,
                 event_type="generation_started",
-                metadata={
-                    "provider": provider_name,
-                    "model": request.model,
-                    "status": "started",
-                },
+                provider=provider_name,
+                model=request.model,
+                status="started",
             ),
         )
         log_event(
@@ -71,12 +69,14 @@ class GatewayService:
                 request_id=request_id,
             )
         except ProviderError:
+            latency_ms = int((perf_counter() - start) * 1000)
             await self._persist_request_log_update(
                 request_id=request_id,
                 operation="mark_failed",
                 action=self.request_log_repository.mark_failed(
                     request_id=request_id,
                     error_type="ProviderError",
+                    latency_ms=latency_ms,
                 ),
             )
             await self._persist_request_log_insert(
@@ -85,12 +85,11 @@ class GatewayService:
                 action=self.request_log_repository.add_event(
                     request_id=request_id,
                     event_type="generation_failed",
-                    metadata={
-                        "provider": provider_name,
-                        "model": request.model,
-                        "status": "failed",
-                        "error_type": "ProviderError",
-                    },
+                    provider=provider_name,
+                    model=request.model,
+                    status="failed",
+                    error_type="ProviderError",
+                    latency_ms=latency_ms,
                 ),
             )
             log_event(
@@ -100,6 +99,7 @@ class GatewayService:
                 model=request.model,
                 status="failed",
                 error_type="ProviderError",
+                latency_ms=latency_ms,
             )
             raise
         latency_ms = int((perf_counter() - start) * 1000)
@@ -121,12 +121,10 @@ class GatewayService:
             action=self.request_log_repository.add_event(
                 request_id=request_id,
                 event_type="generation_completed",
-                metadata={
-                    "provider": provider_result.provider,
-                    "model": provider_result.model,
-                    "status": "completed",
-                    "latency_ms": latency_ms,
-                },
+                provider=provider_result.provider,
+                model=provider_result.model,
+                status="completed",
+                latency_ms=latency_ms,
             ),
         )
         log_event(
@@ -170,11 +168,14 @@ class GatewayService:
     ) -> None:
         try:
             await action
-        except Exception:
+        except Exception as exc:
+            # Persistence is non-blocking in v1. Record the failure without
+            # changing the generation result.
             log_event(
                 "request_log_insert_failed",
                 request_id=request_id,
                 operation=operation,
+                error_type=type(exc).__name__,
             )
 
     async def _persist_request_log_update(
@@ -186,9 +187,12 @@ class GatewayService:
     ) -> None:
         try:
             await action
-        except Exception:
+        except Exception as exc:
+            # Persistence is non-blocking in v1. Record the failure without
+            # changing the generation result.
             log_event(
                 "request_log_update_failed",
                 request_id=request_id,
                 operation=operation,
+                error_type=type(exc).__name__,
             )
