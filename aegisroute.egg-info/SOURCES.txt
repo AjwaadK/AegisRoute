@@ -4,6 +4,8 @@ aegisroute.egg-info/SOURCES.txt
 aegisroute.egg-info/dependency_links.txt
 aegisroute.egg-info/requires.txt
 aegisroute.egg-info/top_level.txt
+alembic/env.py
+alembic/versions/20260715_0001_create_generation_schema.py
 app/__init__.py
 app/errors.py
 app/main.py
@@ -11,6 +13,10 @@ app/api/__init__.py
 app/api/routes.py
 app/core/__init__.py
 app/core/logging.py
+app/db/__init__.py
+app/db/base.py
+app/db/models.py
+app/db/session.py
 app/providers/__init__.py
 app/providers/base.py
 app/providers/mock.py
@@ -20,6 +26,7 @@ app/schemas/__init__.py
 app/schemas/generation.py
 app/services/__init__.py
 app/services/gateway.py
+tests/test_db_schema.py
 tests/test_gateway_service.py
 tests/test_generate.py
 tests/test_health.py
