@@ -44,6 +44,7 @@ def upgrade() -> None:
     op.create_index("ix_generation_requests_created_at", "generation_requests", ["created_at"], unique=False)
     op.create_index("ix_generation_requests_model", "generation_requests", ["model"], unique=False)
     op.create_index("ix_generation_requests_provider", "generation_requests", ["provider"], unique=False)
+    op.create_index("ix_generation_requests_request_id", "generation_requests", ["request_id"], unique=False)
     op.create_index("ix_generation_requests_status", "generation_requests", ["status"], unique=False)
 
     op.create_table(
@@ -65,7 +66,6 @@ def upgrade() -> None:
     op.create_index("ix_generation_events_created_at", "generation_events", ["created_at"], unique=False)
     op.create_index("ix_generation_events_event_type", "generation_events", ["event_type"], unique=False)
     op.create_index("ix_generation_events_generation_request_id", "generation_events", ["generation_request_id"], unique=False)
-
 
 def downgrade() -> None:
     op.drop_index("ix_generation_events_generation_request_id", table_name="generation_events")
