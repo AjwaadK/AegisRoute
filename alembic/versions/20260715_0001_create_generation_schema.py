@@ -20,17 +20,17 @@ def upgrade() -> None:
     op.create_table(
         "generation_requests",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
-        sa.Column("request_id", sa.String(), nullable=False),
-        sa.Column("model", sa.String(), nullable=False),
-        sa.Column("provider", sa.String(), nullable=False),
-        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("request_id", sa.String(length=64), nullable=False),
+        sa.Column("model", sa.String(length=255), nullable=False),
+        sa.Column("provider", sa.String(length=100), nullable=False),
+        sa.Column("status", sa.String(length=30), nullable=False),
         sa.Column("prompt_hash", sa.String(length=64), nullable=False),
         sa.Column("message_count", sa.Integer(), nullable=False),
         sa.Column("input_chars", sa.Integer(), nullable=False),
         sa.Column("latency_ms", sa.Integer(), nullable=True),
         sa.Column("input_tokens", sa.Integer(), nullable=True),
         sa.Column("output_tokens", sa.Integer(), nullable=True),
-        sa.Column("error_type", sa.String(), nullable=True),
+        sa.Column("error_type", sa.String(length=100), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.CheckConstraint("input_chars >= 0", name="ck_generation_requests_input_chars_gte_0"),
@@ -51,11 +51,11 @@ def upgrade() -> None:
         "generation_events",
         sa.Column("id", sa.BigInteger(), sa.Identity(), nullable=False),
         sa.Column("generation_request_id", sa.BigInteger(), nullable=False),
-        sa.Column("event_type", sa.String(), nullable=False),
-        sa.Column("status", sa.String(), nullable=True),
-        sa.Column("provider", sa.String(), nullable=True),
-        sa.Column("model", sa.String(), nullable=True),
-        sa.Column("error_type", sa.String(), nullable=True),
+        sa.Column("event_type", sa.String(length=100), nullable=False),
+        sa.Column("status", sa.String(length=30), nullable=True),
+        sa.Column("provider", sa.String(length=100), nullable=True),
+        sa.Column("model", sa.String(length=255), nullable=True),
+        sa.Column("error_type", sa.String(length=100), nullable=True),
         sa.Column("message", sa.Text(), nullable=True),
         sa.Column("latency_ms", sa.Integer(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -67,7 +67,6 @@ def upgrade() -> None:
     op.create_index("ix_generation_events_event_type", "generation_events", ["event_type"], unique=False)
     op.create_index("ix_generation_events_generation_request_id", "generation_events", ["generation_request_id"], unique=False)
 
-
 def downgrade() -> None:
     op.drop_index("ix_generation_events_generation_request_id", table_name="generation_events")
     op.drop_index("ix_generation_events_event_type", table_name="generation_events")
@@ -75,7 +74,6 @@ def downgrade() -> None:
     op.drop_table("generation_events")
 
     op.drop_index("ix_generation_requests_status", table_name="generation_requests")
-    op.drop_index("ix_generation_requests_request_id", table_name="generation_requests")
     op.drop_index("ix_generation_requests_provider", table_name="generation_requests")
     op.drop_index("ix_generation_requests_model", table_name="generation_requests")
     op.drop_index("ix_generation_requests_created_at", table_name="generation_requests")
