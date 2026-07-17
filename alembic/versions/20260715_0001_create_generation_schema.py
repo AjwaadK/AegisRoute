@@ -44,7 +44,6 @@ def upgrade() -> None:
     op.create_index("ix_generation_requests_created_at", "generation_requests", ["created_at"], unique=False)
     op.create_index("ix_generation_requests_model", "generation_requests", ["model"], unique=False)
     op.create_index("ix_generation_requests_provider", "generation_requests", ["provider"], unique=False)
-    op.create_index("ix_generation_requests_request_id", "generation_requests", ["request_id"], unique=False)
     op.create_index("ix_generation_requests_status", "generation_requests", ["status"], unique=False)
 
     op.create_table(
