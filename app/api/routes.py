@@ -1,13 +1,20 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated, cast
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.errors import InvalidModelError, ProviderError
 from app.schemas.generation import GenerateRequest, GenerateResponse
 from app.services.gateway import GatewayService
 
 router = APIRouter()
-gateway_service = GatewayService()
+
+
+def get_gateway_service(request: Request) -> GatewayService:
+    """Retrieve the process-scoped gateway assembled during application startup."""
+
+    return cast(GatewayService, request.app.state.container.gateway_service)
 
 
 @router.get("/health")
@@ -16,7 +23,10 @@ async def health() -> dict[str, str]:
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate(request: GenerateRequest) -> GenerateResponse:
+async def generate(
+    request: GenerateRequest,
+    gateway_service: Annotated[GatewayService, Depends(get_gateway_service)],
+) -> GenerateResponse:
     request_id = str(uuid4())
     try:
         return await gateway_service.generate(request=request, request_id=request_id)
