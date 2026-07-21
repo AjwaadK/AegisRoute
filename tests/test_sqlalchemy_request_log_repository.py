@@ -5,14 +5,19 @@ import os
 from collections.abc import Generator
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import Base
 from app.db.models import GenerationEvent, GenerationRequest
+from app.composition import build_application_container
+from app.main import create_app
+from app.providers.base import ProviderAdapter
 from app.repositories.errors import RequestLogNotFoundError
 from app.repositories.request_log import SQLAlchemyRequestLogRepository
+from app.schemas.generation import GenerateRequest, ProviderResult
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -194,3 +199,43 @@ def test_add_event_does_not_change_current_status(
     assert generation_request is not None
     assert generation_request.status == "started"
     assert event.event_type == "provider_attempted"
+
+
+class DeterministicProvider(ProviderAdapter):
+    provider_name = "deterministic"
+
+    async def generate(self, request: GenerateRequest, request_id: str) -> ProviderResult:
+        return ProviderResult(
+            request_id=request_id,
+            provider=self.provider_name,
+            model=request.model,
+            output="deterministic response",
+            input_tokens=2,
+            output_tokens=3,
+        )
+
+
+def test_application_composition_persists_completed_request(
+    session_factory: sessionmaker[Session],
+) -> None:
+    provider = DeterministicProvider()
+    application = create_app(lambda: build_application_container(provider))
+
+    with TestClient(application) as client:
+        response = client.post(
+            "/generate",
+            json={"model": "mock-model-v1", "messages": [{"role": "user", "content": "Hello"}]},
+        )
+
+    with session_factory() as session:
+        generation_request = session.scalar(select(GenerationRequest))
+        event_types = session.scalars(
+            select(GenerationEvent.event_type).order_by(GenerationEvent.id)
+        ).all()
+
+    assert response.status_code == 200
+    assert response.json()["output"] == "deterministic response"
+    assert generation_request is not None
+    assert generation_request.status == "completed"
+    assert "generation_started" in event_types
+    assert "generation_completed" in event_types
