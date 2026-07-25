@@ -7,6 +7,7 @@ from app.core.logging import log_event
 from app.errors import InvalidModelError, ProviderError
 from app.providers.base import ProviderAdapter
 from app.providers.mock import MockProviderAdapter
+from app.providers.provider_registry import ProviderRegistry
 from app.repositories.request_log import NoopRequestLogRepository, RequestLogRepository
 from app.schemas.generation import GenerateRequest, GenerateResponse
 
@@ -18,10 +19,21 @@ class GatewayService:
 
     def __init__(
         self,
+        provider_registry: ProviderRegistry | None = None,
+        provider_name: str = "mock",
         provider_adapter: ProviderAdapter | None = None,
         request_log_repository: RequestLogRepository | None = None,
     ) -> None:
-        self.provider_adapter = provider_adapter or MockProviderAdapter()
+        if provider_registry is not None and provider_adapter is not None:
+            raise ValueError("Provide either provider_registry or provider_adapter, not both")
+        if provider_registry is None:
+            compatibility_provider = provider_adapter or MockProviderAdapter()
+            provider_registry = ProviderRegistry(
+                {compatibility_provider.provider_name: compatibility_provider}
+            )
+            provider_name = compatibility_provider.provider_name
+        self.provider_registry = provider_registry
+        self.provider_name = provider_name
         self.request_log_repository = request_log_repository or NoopRequestLogRepository()
 
     async def generate(self, request: GenerateRequest, request_id: str) -> GenerateResponse:
@@ -31,7 +43,7 @@ class GatewayService:
                 valid_models=self.valid_models,
             )
 
-        provider_adapter = self.provider_adapter
+        provider_adapter = self.provider_registry.get(self.provider_name)
         provider_name = provider_adapter.provider_name
         request_metadata = self._request_metadata(request)
         await self._persist_request_log_insert(
