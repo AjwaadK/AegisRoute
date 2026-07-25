@@ -11,6 +11,14 @@ class ProviderNotFoundError(LookupError):
         super().__init__(f"Provider '{provider_name}' is not registered")
 
 
+class ModelNotFoundError(LookupError):
+    """Raised when a requested model is not registered."""
+
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
+        super().__init__(f"Model '{model_name}' is not registered")
+
+
 class InvalidModelError(ValueError):
     """Raised when a requested model is not supported by the gateway."""
 
