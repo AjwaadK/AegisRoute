@@ -3,6 +3,14 @@ class ProviderError(Exception):
     """Raised when a provider fails to generate a response."""
 
 
+class ProviderNotFoundError(LookupError):
+    """Raised when a requested provider is not registered."""
+
+    def __init__(self, provider_name: str) -> None:
+        self.provider_name = provider_name
+        super().__init__(f"Provider '{provider_name}' is not registered")
+
+
 class InvalidModelError(ValueError):
     """Raised when a requested model is not supported by the gateway."""
 
