@@ -19,11 +19,6 @@ class ApplicationContainer:
 
     engine: Engine
     gateway_service: GatewayService
-    model_registry: ModelRegistry = field(
-        default_factory=lambda: ModelRegistry(
-            {"mock-model-v1": ModelDefinition("mock-model-v1", ("mock",))}
-        )
-    )
 
     def dispose(self) -> None:
         """Release resources owned by the application process."""
