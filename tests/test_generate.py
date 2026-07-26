@@ -1,12 +1,23 @@
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
 
-from app.main import app
+from app.composition import ApplicationContainer
+from app.main import create_app
+from app.services.gateway import GatewayService
 
 
-client = TestClient(app)
+def build_test_container() -> ApplicationContainer:
+    return ApplicationContainer(engine=create_engine("sqlite://"), gateway_service=GatewayService())
 
 
-def test_generate_success() -> None:
+@pytest.fixture
+def client() -> TestClient:
+    with TestClient(create_app(build_test_container)) as test_client:
+        yield test_client
+
+
+def test_generate_success(client: TestClient) -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [{"role": "user", "content": "Hello router"}],
@@ -26,7 +37,7 @@ def test_generate_success() -> None:
     assert body["output_tokens"] >= 1
 
 
-def test_generate_success_with_default_options() -> None:
+def test_generate_success_with_default_options(client: TestClient) -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [{"role": "user", "content": "Hello router"}],
@@ -39,7 +50,7 @@ def test_generate_success_with_default_options() -> None:
     assert body["output"].startswith("mock_response:")
 
 
-def test_generate_invalid_model() -> None:
+def test_generate_invalid_model(client: TestClient) -> None:
     payload = {
         "model": "unknown-model",
         "messages": [{"role": "user", "content": "Hello router"}],
@@ -56,7 +67,7 @@ def test_generate_invalid_model() -> None:
     }
 
 
-def test_generate_invalid_schema_messages_required() -> None:
+def test_generate_invalid_schema_messages_required(client: TestClient) -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [],
@@ -67,7 +78,7 @@ def test_generate_invalid_schema_messages_required() -> None:
     assert response.status_code == 422
 
 
-def test_generate_invalid_schema_content_not_empty() -> None:
+def test_generate_invalid_schema_content_not_empty(client: TestClient) -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [{"role": "user", "content": "   "}],
@@ -78,7 +89,7 @@ def test_generate_invalid_schema_content_not_empty() -> None:
     assert response.status_code == 422
 
 
-def test_generate_invalid_schema_max_tokens_bounds() -> None:
+def test_generate_invalid_schema_max_tokens_bounds(client: TestClient) -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [{"role": "user", "content": "Hi"}],
@@ -89,7 +100,7 @@ def test_generate_invalid_schema_max_tokens_bounds() -> None:
     assert response.status_code == 422
 
 
-def test_generate_invalid_schema_temperature_bounds() -> None:
+def test_generate_invalid_schema_temperature_bounds(client: TestClient) -> None:
     payload = {
         "model": "mock-model-v1",
         "messages": [{"role": "user", "content": "Hi"}],
@@ -100,7 +111,7 @@ def test_generate_invalid_schema_temperature_bounds() -> None:
     assert response.status_code == 422
 
 
-def test_generate_invalid_schema_model_not_whitespace() -> None:
+def test_generate_invalid_schema_model_not_whitespace(client: TestClient) -> None:
     payload = {
         "model": "   ",
         "messages": [{"role": "user", "content": "Hi"}],
@@ -111,7 +122,7 @@ def test_generate_invalid_schema_model_not_whitespace() -> None:
     assert response.status_code == 422
 
 
-def test_generate_provider_error_returns_bad_gateway(monkeypatch) -> None:
+def test_generate_provider_error_returns_bad_gateway(client: TestClient, monkeypatch) -> None:
     from app.errors import ProviderError
     from app.providers.mock import MockProviderAdapter
 
@@ -133,7 +144,7 @@ def test_generate_provider_error_returns_bad_gateway(monkeypatch) -> None:
 }
 
 
-def test_generate_provider_error_logs_generation_failed(monkeypatch, caplog) -> None:
+def test_generate_provider_error_logs_generation_failed(client: TestClient, monkeypatch, caplog) -> None:
     import logging
 
     from app.core.logging import LOGGER_NAME
