@@ -5,11 +5,12 @@ from dataclasses import dataclass, field
 from sqlalchemy.engine import Engine
 
 from app.db.session import create_database_engine, create_session_factory
-from app.models.model_registry import ModelDefinition, ModelRegistry
 from app.providers.base import ProviderAdapter
 from app.providers.mock import MockProviderAdapter
-from app.providers.provider_registry import ProviderRegistry
 from app.repositories.request_log import SQLAlchemyRequestLogRepository
+from app.routing.model_registry import ModelDefinition, ModelRegistry
+from app.routing.policy import DeterministicRoutingPolicy, RoutingPolicy
+from app.routing.provider_registry import ProviderRegistry
 from app.services.gateway import GatewayService
 
 
@@ -19,6 +20,7 @@ class ApplicationContainer:
 
     engine: Engine
     gateway_service: GatewayService
+    routing_policy: RoutingPolicy | None = None
 
     def dispose(self) -> None:
         """Release resources owned by the application process."""
@@ -26,55 +28,28 @@ class ApplicationContainer:
         self.engine.dispose()
 
 
-def build_application_container(
-    provider: ProviderAdapter | None = None,
-    *,
-    model_registry: ModelRegistry | None = None,
-) -> ApplicationContainer:
+def build_application_container(provider: ProviderAdapter | None = None) -> ApplicationContainer:
     """Assemble the production dependency graph without opening a session."""
 
     engine = create_database_engine()
     try:
         session_factory = create_session_factory(engine)
         request_log_repository = SQLAlchemyRequestLogRepository(session_factory)
-        configured_provider = provider or MockProviderAdapter()
-        provider_registry = ProviderRegistry(
-            {configured_provider.provider_name: configured_provider}
+        provider_adapter = provider or MockProviderAdapter()
+        provider_registry = ProviderRegistry([provider_adapter])
+        model_registry = ModelRegistry(
+            [ModelDefinition(name="mock-model-v1", providers=(provider_adapter.provider_name,))]
         )
-        configured_model_registry = model_registry or ModelRegistry(
-            {
-                "mock-model-v1": ModelDefinition(
-                    "mock-model-v1",
-                    (configured_provider.provider_name,),
-                )
-            }
-        )
-        _validate_model_provider_references(
-            model_registry=configured_model_registry,
-            provider_registry=provider_registry,
-        )
+        routing_policy = DeterministicRoutingPolicy(model_registry, provider_registry)
         gateway_service = GatewayService(
-            provider_registry=provider_registry,
-            provider_name=configured_provider.provider_name,
+            provider_adapter=provider_adapter,
             request_log_repository=request_log_repository,
         )
         return ApplicationContainer(
             engine=engine,
             gateway_service=gateway_service,
-            model_registry=configured_model_registry,
+            routing_policy=routing_policy,
         )
     except Exception:
         engine.dispose()
         raise
-
-
-def _validate_model_provider_references(
-    *,
-    model_registry: ModelRegistry,
-    provider_registry: ProviderRegistry,
-) -> None:
-    """Fail composition when a model references an unknown provider."""
-
-    for model_name in model_registry.names():
-        for provider_name in model_registry.get(model_name).providers:
-            provider_registry.get(provider_name)
