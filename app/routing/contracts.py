@@ -1,6 +1,7 @@
 """Immutable, infrastructure-independent routing value objects."""
 
 from dataclasses import dataclass
+from typing import Protocol
 
 
 def _validate_non_empty(value: str, field_name: str) -> None:
@@ -36,3 +37,10 @@ class RoutingDecision:
         _validate_non_empty(self.reason, "reason")
         if self.provider_name != self.provider_name.lower():
             raise ValueError("provider_name must be lowercase")
+
+
+class RoutingPolicy(Protocol):
+    """Select a provider and concrete model for a routing request."""
+
+    def route(self, request: RoutingRequest) -> RoutingDecision:
+        """Return the routing decision for the request."""
