@@ -1,10 +1,10 @@
-"""In-memory model configuration registry used by routing policies."""
+"""Immutable model definitions and registry used by routing policies."""
 
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
 
-from app.routing.contracts import _validate_non_empty
-from app.routing.errors import ModelNotFoundError
+from app.errors import ModelNotFoundError
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,24 +14,51 @@ class ModelDefinition:
     name: str
     providers: tuple[str, ...]
 
-    def __post_init__(self) -> None:
-        _validate_non_empty(self.name, "name")
-        if not self.providers:
-            raise ValueError("providers must not be empty")
-        for provider_name in self.providers:
-            _validate_non_empty(provider_name, "provider_name")
+    def __init__(self, name: str, providers: Iterable[str]) -> None:
+        provider_names = tuple(providers)
+        if not name or not name.strip():
+            raise ValueError("Model name cannot be empty")
+        if not provider_names:
+            raise ValueError("A model must have at least one provider")
+        if any(not name or not name.strip() for name in provider_names):
+            raise ValueError("Provider names cannot be empty")
+        if any(name != name.lower() for name in provider_names):
+            raise ValueError("Provider names must be lowercase")
+        if len(provider_names) != len(set(provider_names)):
+            raise ValueError("Duplicate provider names are not allowed")
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "providers", provider_names)
 
 
+@dataclass(frozen=True, slots=True)
 class ModelRegistry:
-    """Resolve immutable model definitions by their public model name."""
+    """Provide constant-time access to a fixed set of model definitions."""
 
-    def __init__(self, definitions: Iterable[ModelDefinition]) -> None:
-        self._definitions = {definition.name: definition for definition in definitions}
+    _models: Mapping[str, ModelDefinition] = field(init=False, repr=False)
+
+    def __init__(
+        self,
+        definitions: Mapping[str, ModelDefinition] | Iterable[ModelDefinition],
+    ) -> None:
+        if isinstance(definitions, Mapping):
+            copied = dict(definitions)
+        else:
+            copied = {definition.name: definition for definition in definitions}
+        if not copied:
+            raise ValueError("Model registry cannot be empty")
+        for model_name, definition in copied.items():
+            if model_name != definition.name:
+                raise ValueError(
+                    f"Model registry key '{model_name}' does not match "
+                    f"definition name '{definition.name}'"
+                )
+        object.__setattr__(self, "_models", MappingProxyType(copied))
 
     def get(self, model_name: str) -> ModelDefinition:
-        """Return a model definition or raise the routing-domain error."""
-
         try:
-            return self._definitions[model_name]
+            return self._models[model_name]
         except KeyError:
             raise ModelNotFoundError(model_name) from None
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(sorted(self._models))
