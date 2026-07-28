@@ -66,6 +66,14 @@ def upgrade() -> None:
     op.create_index("ix_generation_events_event_type", "generation_events", ["event_type"], unique=False)
     op.create_index("ix_generation_events_generation_request_id", "generation_events", ["generation_request_id"], unique=False)
 
+<<<<<<< ours
+<<<<<<< ours
+=======
+
+>>>>>>> theirs
+=======
+
+>>>>>>> theirs
 def downgrade() -> None:
     op.drop_index("ix_generation_events_generation_request_id", table_name="generation_events")
     op.drop_index("ix_generation_events_event_type", table_name="generation_events")
