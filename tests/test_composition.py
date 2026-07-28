@@ -5,16 +5,9 @@ from sqlalchemy import create_engine
 from app.api.routes import get_gateway_service
 from app.composition import ApplicationContainer, build_application_container
 from app.main import create_app
-<<<<<<< ours
-<<<<<<< ours
 from app.models.model_registry import ModelDefinition, ModelRegistry
 from app.providers.mock import MockProviderAdapter
-=======
 from app.routing.contracts import RoutingDecision, RoutingRequest
->>>>>>> theirs
-=======
-from app.routing.contracts import RoutingDecision, RoutingRequest
->>>>>>> theirs
 from app.schemas.generation import GenerateRequest, GenerateResponse
 from app.services.gateway import GatewayService
 
@@ -59,29 +52,18 @@ def test_postgres_configuration_error_is_raised_at_startup(monkeypatch: pytest.M
             pass
 
 
-<<<<<<< ours
-<<<<<<< ours
 def test_composition_rejects_model_with_unregistered_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", "sqlite://")
-    model_registry = ModelRegistry(
-        {
-            "mock-model-v1": ModelDefinition(
-                "mock-model-v1",
-                ("unregistered",),
-            )
-        }
+    models = ModelRegistry(
+        {"mock-model-v1": ModelDefinition("mock-model-v1", ("unregistered",))}
     )
 
     with pytest.raises(LookupError, match="unregistered"):
-        build_application_container(
-            MockProviderAdapter(),
-            model_registry=model_registry,
-        )
-=======
-=======
->>>>>>> theirs
+        build_application_container(MockProviderAdapter(), model_registry=models)
+
+
 def test_real_composition_routes_mock_model_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "sqlite://")
 
@@ -98,7 +80,3 @@ def test_real_composition_routes_mock_model_to_mock(monkeypatch: pytest.MonkeyPa
         )
     finally:
         container.dispose()
-<<<<<<< ours
->>>>>>> theirs
-=======
->>>>>>> theirs

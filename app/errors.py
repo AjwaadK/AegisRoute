@@ -1,4 +1,3 @@
-
 class ProviderError(Exception):
     """Raised when a provider fails to generate a response."""
 
@@ -22,26 +21,10 @@ class ModelNotFoundError(LookupError):
 class InvalidModelError(ValueError):
     """Raised when a requested model is not supported by the gateway."""
 
-    def __init__(self, requested_model: str, valid_models: list[str]) -> None:
+    def __init__(self, requested_model: str, valid_models: list[str] | tuple[str, ...]) -> None:
         self.requested_model = requested_model
         self.valid_models = valid_models
         super().__init__(f"Unsupported model '{requested_model}'")
-
-
-class ModelNotFoundError(Exception):
-    """Raised when a requested model is not registered for routing."""
-
-    def __init__(self, model_name: str) -> None:
-        self.model_name = model_name
-        super().__init__(f"Model '{model_name}' is not registered")
-
-
-class ProviderNotFoundError(Exception):
-    """Raised when a configured routing provider is not registered."""
-
-    def __init__(self, provider_name: str) -> None:
-        self.provider_name = provider_name
-        super().__init__(f"Provider '{provider_name}' is not registered")
 
 
 __all__ = (
