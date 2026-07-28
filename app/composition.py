@@ -1,6 +1,6 @@
 """Application composition for process-scoped runtime dependencies."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy.engine import Engine
 
