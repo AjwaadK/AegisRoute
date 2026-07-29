@@ -3,12 +3,38 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 
 from app.composition import ApplicationContainer
+from app.providers.mock import MockProviderAdapter
 from app.main import create_app
+from app.routing.contracts import RoutingDecision, RoutingRequest
+from app.routing.model_registry import ModelDefinition, ModelRegistry
+from app.routing.policy import DeterministicRoutingPolicy, RoutingPolicy
+from app.routing.provider_registry import ProviderRegistry
 from app.services.gateway import GatewayService
 
 
-def build_test_container() -> ApplicationContainer:
-    return ApplicationContainer(engine=create_engine("sqlite://"), gateway_service=GatewayService())
+def build_test_container(
+    routing_policy: RoutingPolicy | None = None,
+) -> ApplicationContainer:
+    provider = MockProviderAdapter()
+    provider_registry = ProviderRegistry([provider])
+    model_registry = ModelRegistry(
+        [ModelDefinition("mock-model-v1", ("mock",))]
+    )
+    policy = routing_policy or DeterministicRoutingPolicy(
+        model_registry,
+        provider_registry,
+    )
+    gateway_service = GatewayService(
+        routing_policy=policy,
+        provider_registry=provider_registry,
+    )
+    return ApplicationContainer(
+        engine=create_engine("sqlite://"),
+        gateway_service=gateway_service,
+        model_registry=model_registry,
+        provider_registry=provider_registry,
+        routing_policy=policy,
+    )
 
 
 @pytest.fixture
@@ -50,7 +76,7 @@ def test_generate_success_with_default_options(client: TestClient) -> None:
     assert body["output"].startswith("mock_response:")
 
 
-def test_generate_invalid_model(client: TestClient) -> None:
+def test_generate_unknown_model_returns_unprocessable_entity(client: TestClient) -> None:
     payload = {
         "model": "unknown-model",
         "messages": [{"role": "user", "content": "Hello router"}],
@@ -59,11 +85,10 @@ def test_generate_invalid_model(client: TestClient) -> None:
     }
     response = client.post("/generate", json=payload)
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert response.json()["detail"] == {
-        "error": "invalid_model",
+        "error": "model_not_found",
         "requested_model": "unknown-model",
-        "valid_models": ["mock-model-v1"],
     }
 
 
@@ -168,3 +193,36 @@ def test_generate_provider_error_logs_generation_failed(client: TestClient, monk
     assert response.status_code == 502
     assert any('"event": "generation_failed"' in record.message for record in caplog.records)
     assert any('"error_type": "ProviderError"' in record.message for record in caplog.records)
+
+
+def test_missing_selected_provider_returns_generic_internal_error() -> None:
+    class MissingProviderPolicy:
+        def route(self, request: RoutingRequest) -> RoutingDecision:
+            return RoutingDecision(
+                requested_model=request.requested_model,
+                selected_model="internal-model",
+                provider_name="missing-provider",
+                reason="internal configuration",
+            )
+
+    with TestClient(
+        create_app(lambda: build_test_container(MissingProviderPolicy()))
+    ) as test_client:
+        response = test_client.post(
+            "/generate",
+            json={
+                "model": "public-model",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == {
+        "error": "internal_routing_error",
+        "message": "An internal routing error occurred",
+    }
+    serialized_body = response.text
+    assert "missing-provider" not in serialized_body
+    assert "internal-model" not in serialized_body
+    assert "internal configuration" not in serialized_body
+    assert "mock" not in serialized_body

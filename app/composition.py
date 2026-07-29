@@ -27,6 +27,7 @@ class ApplicationContainer:
     engine: Engine
     gateway_service: GatewayService
     model_registry: ModelRegistry = field(default_factory=_default_model_registry)
+    provider_registry: ProviderRegistry | None = None
     routing_policy: RoutingPolicy | None = None
 
     def dispose(self) -> None:
@@ -62,14 +63,15 @@ def build_application_container(
             provider_registry,
         )
         gateway_service = GatewayService(
+            routing_policy=routing_policy,
             provider_registry=provider_registry,
-            provider_name=configured_provider.provider_name,
             request_log_repository=request_log_repository,
         )
         return ApplicationContainer(
             engine=engine,
             gateway_service=gateway_service,
             model_registry=configured_models,
+            provider_registry=provider_registry,
             routing_policy=routing_policy,
         )
     except Exception:
