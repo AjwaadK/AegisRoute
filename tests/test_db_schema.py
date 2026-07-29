@@ -2,7 +2,7 @@ import importlib
 
 import pytest
 from alembic.config import Config
-from sqlalchemy import CheckConstraint
+from sqlalchemy import CheckConstraint, Text
 
 from app.db.base import Base
 from app.db.models import GenerationEvent, GenerationRequest
@@ -55,8 +55,10 @@ def test_request_id_is_required_unique_and_not_separately_indexed():
 
 def test_important_string_columns_have_intentional_lengths():
     assert column(GenerationRequest, "request_id").type.length == 64
-    assert column(GenerationRequest, "model").type.length == 255
+    assert column(GenerationRequest, "requested_model").type.length == 255
+    assert column(GenerationRequest, "selected_model").type.length == 255
     assert column(GenerationRequest, "provider").type.length == 100
+    assert isinstance(column(GenerationRequest, "routing_reason").type, Text)
     assert column(GenerationRequest, "status").type.length == 30
     assert column(GenerationRequest, "prompt_hash").type.length == 64
     assert column(GenerationRequest, "error_type").type.length == 100
@@ -69,7 +71,10 @@ def test_important_string_columns_have_intentional_lengths():
 
 
 def test_generation_request_required_and_nullable_columns():
-    assert column(GenerationRequest, "provider").nullable is False
+    assert column(GenerationRequest, "requested_model").nullable is False
+    assert column(GenerationRequest, "selected_model").nullable is True
+    assert column(GenerationRequest, "provider").nullable is True
+    assert column(GenerationRequest, "routing_reason").nullable is True
     assert column(GenerationRequest, "latency_ms").nullable is True
     assert column(GenerationRequest, "input_tokens").nullable is True
     assert column(GenerationRequest, "output_tokens").nullable is True
@@ -119,3 +124,16 @@ def test_initial_migration_does_not_create_redundant_request_id_index():
 
     with open(migration, encoding="utf-8") as migration_file:
         assert "ix_generation_requests_request_id" not in migration_file.read()
+
+
+def test_routing_metadata_migration_follows_current_schema_head():
+    migration = "alembic/versions/20260729_0002_add_routing_metadata.py"
+
+    with open(migration, encoding="utf-8") as migration_file:
+        contents = migration_file.read()
+
+    assert 'revision: str = "20260729_0002"' in contents
+    assert 'down_revision: Union[str, None] = "20260715_0001"' in contents
+    assert 'new_column_name="requested_model"' in contents
+    assert '"selected_model"' in contents
+    assert '"routing_reason"' in contents

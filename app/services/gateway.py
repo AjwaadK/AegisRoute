@@ -4,7 +4,7 @@ from time import perf_counter
 from typing import Any
 
 from app.core.logging import log_event
-from app.errors import ProviderError, ProviderNotFoundError
+from app.errors import ModelNotFoundError, ProviderError, ProviderNotFoundError
 from app.repositories.request_log import NoopRequestLogRepository, RequestLogRepository
 from app.routing.contracts import RoutingDecision, RoutingRequest
 from app.routing.policy import RoutingPolicy
@@ -29,28 +29,90 @@ class GatewayService:
         if self.routing_policy is None or self.provider_registry is None:
             raise RuntimeError("GatewayService routing dependencies are not configured")
 
+        lifecycle_start = perf_counter()
+        request_metadata = self._request_metadata(request)
+        await self._persist_request_log_insert(
+            request_id=request_id,
+            operation="create_started_request",
+            action=self.request_log_repository.create_started_request(
+                request_id=request_id,
+                requested_model=request.model,
+                **request_metadata,
+            ),
+        )
+
         routing_request = RoutingRequest(requested_model=request.model)
         decision: RoutingDecision | None = None
         try:
             decision = self.routing_policy.route(routing_request)
-            log_event(
-                "routing_decision",
+        except (ModelNotFoundError, ProviderNotFoundError) as exc:
+            latency_ms = int((perf_counter() - lifecycle_start) * 1000)
+            await self._persist_request_log_update(
                 request_id=request_id,
-                requested_model=decision.requested_model,
+                operation="mark_failed",
+                action=self.request_log_repository.mark_failed(
+                    request_id=request_id,
+                    error_type=type(exc).__name__,
+                    latency_ms=latency_ms,
+                ),
+            )
+            log_event(
+                "routing_failed",
+                request_id=request_id,
+                requested_model=request.model,
+                selected_model=None,
+                provider_name=None,
+                routing_reason=None,
+                lifecycle_stage="routing",
+                error_type=type(exc).__name__,
+            )
+            if isinstance(exc, ProviderNotFoundError):
+                self._log_routing_invariant_violation(
+                    request_id=request_id,
+                    requested_model=request.model,
+                    error=exc,
+                    decision=None,
+                )
+            raise
+
+        log_event(
+            "routing_decision",
+            request_id=request_id,
+            requested_model=decision.requested_model,
+            selected_model=decision.selected_model,
+            provider_name=decision.provider_name,
+            routing_reason=decision.reason,
+            lifecycle_stage="routed",
+        )
+        await self._persist_request_log_update(
+            request_id=request_id,
+            operation="mark_routed",
+            action=self.request_log_repository.mark_routed(
+                request_id=request_id,
                 selected_model=decision.selected_model,
                 provider_name=decision.provider_name,
                 routing_reason=decision.reason,
-            )
+            ),
+        )
+
+        try:
             provider_adapter = self.provider_registry.get(decision.provider_name)
         except ProviderNotFoundError as exc:
-            log_event(
-                "routing_invariant_violation",
+            latency_ms = int((perf_counter() - lifecycle_start) * 1000)
+            await self._persist_request_log_update(
+                request_id=request_id,
+                operation="mark_failed",
+                action=self.request_log_repository.mark_failed(
+                    request_id=request_id,
+                    error_type=type(exc).__name__,
+                    latency_ms=latency_ms,
+                ),
+            )
+            self._log_routing_invariant_violation(
                 request_id=request_id,
                 requested_model=request.model,
-                selected_model=decision.selected_model if decision else None,
-                missing_provider=exc.provider_name,
-                routing_reason=decision.reason if decision else None,
-                registered_providers=self.provider_registry.names(),
+                error=exc,
+                decision=decision,
             )
             raise
 
@@ -58,34 +120,13 @@ class GatewayService:
         selected_request = request.model_copy(
             update={"model": decision.selected_model}
         )
-        request_metadata = self._request_metadata(request)
-        await self._persist_request_log_insert(
-            request_id=request_id,
-            operation="create_started_request",
-            action=self.request_log_repository.create_started_request(
-                request_id=request_id,
-                provider=provider_name,
-                model=decision.selected_model,
-                **request_metadata,
-            ),
-        )
-        await self._persist_request_log_insert(
-            request_id=request_id,
-            operation="add_generation_started_event",
-            action=self.request_log_repository.add_event(
-                request_id=request_id,
-                event_type="generation_started",
-                provider=provider_name,
-                model=decision.selected_model,
-                status="started",
-            ),
-        )
         log_event(
             "generation_started",
             request_id=request_id,
             provider=provider_name,
             model=decision.selected_model,
             status="started",
+            lifecycle_stage="provider_invocation",
         )
         start = perf_counter()
         try:
@@ -104,19 +145,6 @@ class GatewayService:
                     latency_ms=latency_ms,
                 ),
             )
-            await self._persist_request_log_insert(
-                request_id=request_id,
-                operation="add_generation_failed_event",
-                action=self.request_log_repository.add_event(
-                    request_id=request_id,
-                    event_type="generation_failed",
-                    provider=provider_name,
-                    model=decision.selected_model,
-                    status="failed",
-                    error_type="ProviderError",
-                    latency_ms=latency_ms,
-                ),
-            )
             log_event(
                 "generation_failed",
                 request_id=request_id,
@@ -125,6 +153,7 @@ class GatewayService:
                 status="failed",
                 error_type="ProviderError",
                 latency_ms=latency_ms,
+                lifecycle_stage="provider_invocation",
             )
             raise
         latency_ms = int((perf_counter() - start) * 1000)
@@ -133,23 +162,9 @@ class GatewayService:
             operation="mark_completed",
             action=self.request_log_repository.mark_completed(
                 request_id=request_id,
-                provider=provider_result.provider,
-                model=provider_result.model,
                 latency_ms=latency_ms,
                 input_tokens=provider_result.input_tokens,
                 output_tokens=provider_result.output_tokens,
-            ),
-        )
-        await self._persist_request_log_insert(
-            request_id=request_id,
-            operation="add_generation_completed_event",
-            action=self.request_log_repository.add_event(
-                request_id=request_id,
-                event_type="generation_completed",
-                provider=provider_result.provider,
-                model=provider_result.model,
-                status="completed",
-                latency_ms=latency_ms,
             ),
         )
         log_event(
@@ -159,6 +174,7 @@ class GatewayService:
             model=provider_result.model,
             status="completed",
             latency_ms=latency_ms,
+            lifecycle_stage="completed",
         )
         return GenerateResponse(
             request_id=request_id,
@@ -183,6 +199,30 @@ class GatewayService:
             "message_count": len(request.messages),
             "input_chars": input_chars,
         }
+
+    def _log_routing_invariant_violation(
+        self,
+        *,
+        request_id: str,
+        requested_model: str,
+        error: ProviderNotFoundError,
+        decision: RoutingDecision | None,
+    ) -> None:
+        if self.provider_registry is None:
+            return
+        log_event(
+            "routing_invariant_violation",
+            request_id=request_id,
+            requested_model=requested_model,
+            selected_model=decision.selected_model if decision else None,
+            missing_provider=error.provider_name,
+            routing_reason=decision.reason if decision else None,
+            registered_providers=self.provider_registry.names(),
+            lifecycle_stage=(
+                "provider_resolution" if decision is not None else "routing"
+            ),
+            error_type=type(error).__name__,
+        )
 
     async def _persist_request_log_insert(
         self,

@@ -49,6 +49,9 @@ class FailingRequestLogRepository:
     async def mark_completed(self, **fields: Any) -> None:
         raise RuntimeError("request log unavailable")
 
+    async def mark_routed(self, **fields: Any) -> None:
+        raise RuntimeError("request log unavailable")
+
     async def mark_failed(self, **fields: Any) -> None:
         raise RuntimeError("request log unavailable")
 
@@ -108,11 +111,16 @@ def test_noop_request_log_repository_methods_complete_without_raising() -> None:
     async def call_methods() -> None:
         await repository.create_started_request(
             request_id="request-123",
-            provider="capturing",
-            model="mock-model-v1",
+            requested_model="mock-model-v1",
             prompt_hash="abc",
             message_count=1,
             input_chars=12,
+        )
+        await repository.mark_routed(
+            request_id="request-123",
+            selected_model="mock-model-v1",
+            provider_name="capturing",
+            routing_reason="test",
         )
         await repository.add_event(
             request_id="request-123",
@@ -123,8 +131,6 @@ def test_noop_request_log_repository_methods_complete_without_raising() -> None:
         )
         await repository.mark_completed(
             request_id="request-123",
-            provider="capturing",
-            model="mock-model-v1",
             latency_ms=1,
             input_tokens=1,
             output_tokens=2,
@@ -238,7 +244,9 @@ def test_generate_creates_started_request_log_and_completion_event() -> None:
     started_request = repository.requests["request-123"]
     assert started_request["status"] == "completed"
     assert started_request["provider"] == "capturing"
-    assert started_request["model"] == "mock-model-v1"
+    assert started_request["requested_model"] == "mock-model-v1"
+    assert started_request["selected_model"] == "mock-model-v1"
+    assert started_request["routing_reason"] == "selected first configured provider"
     assert len(str(started_request["prompt_hash"])) == 64
     assert started_request["message_count"] == 1
     assert started_request["input_chars"] == len("Hello router")
@@ -247,7 +255,7 @@ def test_generate_creates_started_request_log_and_completion_event() -> None:
         "request_id": "request-123",
         "event_type": "generation_started",
         "status": "started",
-        "provider": "capturing",
+        "provider": None,
         "model": "mock-model-v1",
         "error_type": None,
         "message": None,
@@ -271,6 +279,10 @@ def test_generate_marks_completed_on_success() -> None:
     assert completed_request["latency_ms"] == response.latency_ms
     assert completed_request["input_tokens"] == 1
     assert completed_request["output_tokens"] == 2
+    assert completed_request["requested_model"] == "mock-model-v1"
+    assert completed_request["selected_model"] == "mock-model-v1"
+    assert completed_request["provider"] == "capturing"
+    assert completed_request["routing_reason"] == "selected first configured provider"
     assert repository.events[-1]["latency_ms"] == response.latency_ms
 
 
@@ -288,6 +300,10 @@ def test_generate_marks_failed_on_provider_error() -> None:
     assert failed_request["status"] == "failed"
     assert failed_request["error_type"] == "ProviderError"
     assert isinstance(failed_request["latency_ms"], int)
+    assert failed_request["requested_model"] == "mock-model-v1"
+    assert failed_request["selected_model"] == "mock-model-v1"
+    assert failed_request["provider"] == "failing"
+    assert failed_request["routing_reason"] == "selected first configured provider"
     assert repository.events[-1]["event_type"] == "generation_failed"
     assert repository.events[-1]["provider"] == "failing"
     assert repository.events[-1]["model"] == "mock-model-v1"
@@ -421,6 +437,8 @@ def test_missing_selected_provider_propagates_and_logs_invariant(caplog) -> None
         "missing_provider": "missing",
         "routing_reason": "misconfigured route",
         "registered_providers": ["capturing"],
+        "lifecycle_stage": "provider_resolution",
+        "error_type": "ProviderNotFoundError",
     }
 
 
@@ -443,3 +461,117 @@ def test_routing_decision_is_logged(caplog) -> None:
     assert decision["selected_model"] == "mock-model-v1"
     assert decision["provider_name"] == "capturing"
     assert decision["routing_reason"] == "selected first configured provider"
+    assert decision["lifecycle_stage"] == "routed"
+
+
+def test_request_lifecycle_persists_started_then_routed_before_provider() -> None:
+    order: list[str] = []
+
+    class RecordingRepository(InMemoryRequestLogRepository):
+        async def create_started_request(self, **fields: Any) -> None:
+            order.append("started")
+            await super().create_started_request(**fields)
+
+        async def mark_routed(self, **fields: Any) -> None:
+            order.append("routed")
+            await super().mark_routed(**fields)
+
+        async def mark_completed(self, **fields: Any) -> None:
+            order.append("completed")
+            await super().mark_completed(**fields)
+
+    class RecordingProvider(CapturingProviderAdapter):
+        async def generate(
+            self,
+            request: GenerateRequest,
+            request_id: str,
+        ) -> ProviderResult:
+            order.append("provider")
+            return await super().generate(request, request_id)
+
+    repository = RecordingRepository()
+    asyncio.run(
+        make_service(
+            RecordingProvider(),
+            request_log_repository=repository,
+        ).generate(request=make_request(), request_id="request-order")
+    )
+
+    assert order == ["started", "routed", "provider", "completed"]
+    assert repository.requests["request-order"]["routing_reason"] == (
+        "selected first configured provider"
+    )
+
+
+def test_model_routing_failure_persists_failed_request_without_decision() -> None:
+    repository = InMemoryRequestLogRepository()
+
+    with pytest.raises(ModelNotFoundError):
+        asyncio.run(
+            make_service(request_log_repository=repository).generate(
+                request=make_request("unknown-model"),
+                request_id="request-unrouted",
+            )
+        )
+
+    failed = repository.requests["request-unrouted"]
+    assert failed["status"] == "failed"
+    assert failed["error_type"] == "ModelNotFoundError"
+    assert failed["requested_model"] == "unknown-model"
+    assert failed["selected_model"] is None
+    assert failed["provider"] is None
+    assert failed["routing_reason"] is None
+
+
+def test_missing_selected_provider_persists_failed_routing_decision() -> None:
+    class MissingProviderPolicy:
+        def route(self, request: RoutingRequest) -> RoutingDecision:
+            return RoutingDecision(
+                requested_model=request.requested_model,
+                selected_model="provider-model-v2",
+                provider_name="missing",
+                reason="misconfigured route",
+            )
+
+    repository = InMemoryRequestLogRepository()
+    with pytest.raises(ProviderNotFoundError):
+        asyncio.run(
+            make_service(
+                routing_policy=MissingProviderPolicy(),
+                provider_registry=ProviderRegistry([CapturingProviderAdapter()]),
+                request_log_repository=repository,
+            ).generate(request=make_request(), request_id="request-missing-persisted")
+        )
+
+    failed = repository.requests["request-missing-persisted"]
+    assert failed["status"] == "failed"
+    assert failed["selected_model"] == "provider-model-v2"
+    assert failed["provider"] == "missing"
+    assert failed["routing_reason"] == "misconfigured route"
+
+
+def test_mark_routed_repository_failure_is_fail_open_and_provider_is_invoked(
+    caplog,
+) -> None:
+    class RoutedFailureRepository(InMemoryRequestLogRepository):
+        async def mark_routed(self, **fields: Any) -> None:
+            raise RuntimeError("routing persistence unavailable")
+
+    provider = CapturingProviderAdapter()
+    repository = RoutedFailureRepository()
+
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        response = asyncio.run(
+            make_service(
+                provider,
+                request_log_repository=repository,
+            ).generate(request=make_request(), request_id="request-fail-open")
+        )
+
+    assert response.output == "captured response"
+    assert provider.request_id == "request-fail-open"
+    assert any(
+        payload["event"] == "request_log_update_failed"
+        and payload["operation"] == "mark_routed"
+        for payload in logged_payloads(caplog)
+    )

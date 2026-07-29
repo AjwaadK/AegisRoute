@@ -13,3 +13,19 @@
   feature commit handoff.
 - Next planned architectural step: Add additional routing policies while
   retaining the same gateway orchestration contract.
+
+## Routing Observability and Persistence V1 — 2026-07-29
+
+- Schema and repository changes: Renamed persisted `model` to
+  `requested_model`, added nullable `selected_model` and `routing_reason`, made
+  the selected-provider field nullable, and added an atomic `mark_routed`
+  lifecycle operation and routed event.
+- Lifecycle decision: Persist request start before routing and persist the full
+  routing decision before provider resolution and invocation; completion and
+  failure preserve that evidence.
+- Observability rationale: Distinguishes failures before routing from failures
+  after a provider and model were selected while keeping persistence fail-open.
+- Validation: Focused repository, gateway, migration, HTTP, and full-suite
+  results are recorded in the feature handoff.
+- Next likely step: Query and aggregate persisted routing outcomes for
+  operational diagnostics.
