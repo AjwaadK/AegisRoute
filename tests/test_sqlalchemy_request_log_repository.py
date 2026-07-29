@@ -3,12 +3,15 @@
 import asyncio
 import os
 from collections.abc import Generator
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, delete, select
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.db.base import Base
 from app.db.models import GenerationEvent, GenerationRequest
@@ -27,14 +30,30 @@ pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="DATABASE_URL is requir
 @pytest.fixture(scope="module")
 def session_factory() -> Generator[sessionmaker[Session], None, None]:
     assert DATABASE_URL is not None
-    engine = create_engine(DATABASE_URL)
-    Base.metadata.drop_all(engine)
+    schema_name = f"aegisroute_repository_{uuid4().hex}"
+    admin_engine = create_engine(DATABASE_URL)
+    database_url = make_url(DATABASE_URL)
+    query = dict(database_url.query)
+    query["options"] = f"-csearch_path={schema_name}"
+    isolated_url = database_url.set(query=query)
+
+    with admin_engine.begin() as connection:
+        connection.execute(CreateSchema(schema_name))
+
+    engine = create_engine(isolated_url)
     Base.metadata.create_all(engine)
+    original_database_url = os.environ["DATABASE_URL"]
+    os.environ["DATABASE_URL"] = isolated_url.render_as_string(
+        hide_password=False
+    )
     try:
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     finally:
-        Base.metadata.drop_all(engine)
+        os.environ["DATABASE_URL"] = original_database_url
         engine.dispose()
+        with admin_engine.begin() as connection:
+            connection.execute(DropSchema(schema_name, cascade=True))
+        admin_engine.dispose()
 
 
 @pytest.fixture(autouse=True)
