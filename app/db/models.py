@@ -23,13 +23,15 @@ class GenerationRequest(Base):
         Index("ix_generation_requests_created_at", "created_at"),
         Index("ix_generation_requests_status", "status"),
         Index("ix_generation_requests_provider", "provider"),
-        Index("ix_generation_requests_model", "model"),
+        Index("ix_generation_requests_requested_model", "requested_model"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     request_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    model: Mapped[str] = mapped_column(String(255), nullable=False)
-    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    requested_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    selected_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    routing_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     message_count: Mapped[int] = mapped_column(Integer, nullable=False)

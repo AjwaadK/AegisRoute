@@ -54,8 +54,7 @@ def repository(session_factory: sessionmaker[Session]) -> SQLAlchemyRequestLogRe
 async def create_started_request(repository: SQLAlchemyRequestLogRepository, request_id: str = "request-123") -> None:
     await repository.create_started_request(
         request_id=request_id,
-        provider="mock",
-        model="mock-model-v1",
+        requested_model="mock-model-v1",
         prompt_hash="a" * 64,
         message_count=1,
         input_chars=5,
@@ -73,6 +72,10 @@ def test_started_request_creates_request_and_started_event(
 
     assert generation_request is not None
     assert generation_request.status == "started"
+    assert generation_request.requested_model == "mock-model-v1"
+    assert generation_request.selected_model is None
+    assert generation_request.provider is None
+    assert generation_request.routing_reason is None
     assert [(event.event_type, event.status) for event in events] == [("generation_started", "started")]
 
 
@@ -81,10 +84,16 @@ def test_complete_request_updates_row_and_appends_event(
 ) -> None:
     asyncio.run(create_started_request(repository))
     asyncio.run(
+        repository.mark_routed(
+            request_id="request-123",
+            selected_model="selected-model-v2",
+            provider_name="mock",
+            routing_reason="selected for test",
+        )
+    )
+    asyncio.run(
         repository.mark_completed(
             request_id="request-123",
-            provider="mock",
-            model="mock-model-v1",
             latency_ms=12,
             input_tokens=3,
             output_tokens=4,
@@ -97,6 +106,10 @@ def test_complete_request_updates_row_and_appends_event(
 
     assert generation_request is not None
     assert generation_request.status == "completed"
+    assert generation_request.requested_model == "mock-model-v1"
+    assert generation_request.selected_model == "selected-model-v2"
+    assert generation_request.provider == "mock"
+    assert generation_request.routing_reason == "selected for test"
     assert generation_request.latency_ms == 12
     assert (generation_request.input_tokens, generation_request.output_tokens) == (3, 4)
     assert generation_request.error_type is None
@@ -108,6 +121,14 @@ def test_fail_request_updates_row_and_appends_event(
     repository: SQLAlchemyRequestLogRepository, session_factory: sessionmaker[Session]
 ) -> None:
     asyncio.run(create_started_request(repository))
+    asyncio.run(
+        repository.mark_routed(
+            request_id="request-123",
+            selected_model="selected-model-v2",
+            provider_name="mock",
+            routing_reason="selected for test",
+        )
+    )
     asyncio.run(
         repository.mark_failed(
             request_id="request-123",
@@ -123,19 +144,35 @@ def test_fail_request_updates_row_and_appends_event(
 
     assert generation_request is not None
     assert generation_request.status == "failed"
+    assert generation_request.selected_model == "selected-model-v2"
+    assert generation_request.provider == "mock"
+    assert generation_request.routing_reason == "selected for test"
     assert generation_request.error_type == "ProviderError"
     assert generation_request.latency_ms == 12
     assert (event.event_type, event.message) == ("generation_failed", "sanitized provider failure")
 
 
-@pytest.mark.parametrize("operation", ["mark_completed", "mark_failed", "add_event"])
+@pytest.mark.parametrize(
+    "operation",
+    ["mark_routed", "mark_completed", "mark_failed", "add_event"],
+)
 def test_unknown_request_id_raises_not_found_error(
     repository: SQLAlchemyRequestLogRepository, operation: str
 ) -> None:
     async def invoke() -> None:
-        if operation == "mark_completed":
+        if operation == "mark_routed":
+            await repository.mark_routed(
+                request_id="missing",
+                selected_model="model",
+                provider_name="mock",
+                routing_reason="test",
+            )
+        elif operation == "mark_completed":
             await repository.mark_completed(
-                request_id="missing", provider="mock", model="mock-model-v1", latency_ms=1, input_tokens=1, output_tokens=1
+                request_id="missing",
+                latency_ms=1,
+                input_tokens=1,
+                output_tokens=1,
             )
         elif operation == "mark_failed":
             await repository.mark_failed(request_id="missing", error_type="ProviderError", latency_ms=1)
@@ -173,7 +210,10 @@ def test_event_insertion_failure_rolls_back_status_change(
     with pytest.raises(RuntimeError, match="event insert failed"):
         asyncio.run(
             repository.mark_completed(
-                request_id="request-123", provider="mock", model="mock-model-v1", latency_ms=1, input_tokens=1, output_tokens=1
+                request_id="request-123",
+                latency_ms=1,
+                input_tokens=1,
+                output_tokens=1,
             )
         )
 
@@ -184,6 +224,66 @@ def test_event_insertion_failure_rolls_back_status_change(
     assert generation_request is not None
     assert generation_request.status == "started"
     assert len(events) == 1
+
+
+def test_mark_routed_updates_only_matching_request(
+    repository: SQLAlchemyRequestLogRepository,
+    session_factory: sessionmaker[Session],
+) -> None:
+    asyncio.run(create_started_request(repository, "request-1"))
+    asyncio.run(create_started_request(repository, "request-2"))
+
+    asyncio.run(
+        repository.mark_routed(
+            request_id="request-1",
+            selected_model="selected-model",
+            provider_name="mock",
+            routing_reason="first available",
+        )
+    )
+
+    with session_factory() as session:
+        requests = {
+            item.request_id: item
+            for item in session.scalars(select(GenerationRequest)).all()
+        }
+
+    assert requests["request-1"].selected_model == "selected-model"
+    assert requests["request-1"].provider == "mock"
+    assert requests["request-1"].routing_reason == "first available"
+    assert requests["request-2"].selected_model is None
+    assert requests["request-2"].provider is None
+    assert requests["request-2"].routing_reason is None
+
+
+def test_mark_routed_event_failure_rolls_back_routing_fields(
+    repository: SQLAlchemyRequestLogRepository,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asyncio.run(create_started_request(repository))
+
+    def fail_event(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("event insert failed")
+
+    monkeypatch.setattr(repository, "_add_event", fail_event)
+    with pytest.raises(RuntimeError, match="event insert failed"):
+        asyncio.run(
+            repository.mark_routed(
+                request_id="request-123",
+                selected_model="selected-model",
+                provider_name="mock",
+                routing_reason="test",
+            )
+        )
+
+    with session_factory() as session:
+        generation_request = session.scalar(select(GenerationRequest))
+
+    assert generation_request is not None
+    assert generation_request.selected_model is None
+    assert generation_request.provider is None
+    assert generation_request.routing_reason is None
 
 
 def test_add_event_does_not_change_current_status(
@@ -237,5 +337,10 @@ def test_application_composition_persists_completed_request(
     assert response.json()["output"] == "deterministic response"
     assert generation_request is not None
     assert generation_request.status == "completed"
+    assert generation_request.requested_model == "mock-model-v1"
+    assert generation_request.selected_model == "mock-model-v1"
+    assert generation_request.provider == "deterministic"
+    assert generation_request.routing_reason == "selected first configured provider"
     assert "generation_started" in event_types
+    assert "generation_routed" in event_types
     assert "generation_completed" in event_types
