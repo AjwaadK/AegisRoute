@@ -78,5 +78,11 @@ def test_real_composition_routes_mock_model_to_mock(monkeypatch: pytest.MonkeyPa
             provider_name="mock",
             reason="selected first configured provider",
         )
+        assert container.provider_registry is not None
+        assert container.gateway_service.routing_policy is container.routing_policy
+        assert (
+            container.gateway_service.provider_registry
+            is container.provider_registry
+        )
     finally:
         container.dispose()

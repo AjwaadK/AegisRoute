@@ -4,47 +4,60 @@ from time import perf_counter
 from typing import Any
 
 from app.core.logging import log_event
-from app.errors import InvalidModelError, ProviderError
-from app.providers.base import ProviderAdapter
-from app.providers.mock import MockProviderAdapter
-from app.providers.provider_registry import ProviderRegistry
+from app.errors import ProviderError, ProviderNotFoundError
 from app.repositories.request_log import NoopRequestLogRepository, RequestLogRepository
+from app.routing.contracts import RoutingDecision, RoutingRequest
+from app.routing.policy import RoutingPolicy
+from app.routing.provider_registry import ProviderRegistry
 from app.schemas.generation import GenerateRequest, GenerateResponse
 
 
 class GatewayService:
-    """Coordinates model validation, provider selection, and response mapping."""
-
-    valid_models = ("mock-model-v1",)
+    """Orchestrate routing, provider invocation, persistence, and responses."""
 
     def __init__(
         self,
+        routing_policy: RoutingPolicy | None = None,
         provider_registry: ProviderRegistry | None = None,
-        provider_name: str = "mock",
-        provider_adapter: ProviderAdapter | None = None,
         request_log_repository: RequestLogRepository | None = None,
     ) -> None:
-        if provider_registry is not None and provider_adapter is not None:
-            raise ValueError("Provide either provider_registry or provider_adapter, not both")
-        if provider_registry is None:
-            compatibility_provider = provider_adapter or MockProviderAdapter()
-            provider_registry = ProviderRegistry(
-                {compatibility_provider.provider_name: compatibility_provider}
-            )
-            provider_name = compatibility_provider.provider_name
+        self.routing_policy = routing_policy
         self.provider_registry = provider_registry
-        self.provider_name = provider_name
         self.request_log_repository = request_log_repository or NoopRequestLogRepository()
 
     async def generate(self, request: GenerateRequest, request_id: str) -> GenerateResponse:
-        if request.model not in self.valid_models:
-            raise InvalidModelError(
-                requested_model=request.model,
-                valid_models=self.valid_models,
-            )
+        if self.routing_policy is None or self.provider_registry is None:
+            raise RuntimeError("GatewayService routing dependencies are not configured")
 
-        provider_adapter = self.provider_registry.get(self.provider_name)
-        provider_name = provider_adapter.provider_name
+        routing_request = RoutingRequest(requested_model=request.model)
+        decision: RoutingDecision | None = None
+        try:
+            decision = self.routing_policy.route(routing_request)
+            log_event(
+                "routing_decision",
+                request_id=request_id,
+                requested_model=decision.requested_model,
+                selected_model=decision.selected_model,
+                provider_name=decision.provider_name,
+                routing_reason=decision.reason,
+            )
+            provider_adapter = self.provider_registry.get(decision.provider_name)
+        except ProviderNotFoundError as exc:
+            log_event(
+                "routing_invariant_violation",
+                request_id=request_id,
+                requested_model=request.model,
+                selected_model=decision.selected_model if decision else None,
+                missing_provider=exc.provider_name,
+                routing_reason=decision.reason if decision else None,
+                registered_providers=self.provider_registry.names(),
+            )
+            raise
+
+        provider_name = decision.provider_name
+        selected_request = request.model_copy(
+            update={"model": decision.selected_model}
+        )
         request_metadata = self._request_metadata(request)
         await self._persist_request_log_insert(
             request_id=request_id,
@@ -52,7 +65,7 @@ class GatewayService:
             action=self.request_log_repository.create_started_request(
                 request_id=request_id,
                 provider=provider_name,
-                model=request.model,
+                model=decision.selected_model,
                 **request_metadata,
             ),
         )
@@ -63,7 +76,7 @@ class GatewayService:
                 request_id=request_id,
                 event_type="generation_started",
                 provider=provider_name,
-                model=request.model,
+                model=decision.selected_model,
                 status="started",
             ),
         )
@@ -71,13 +84,13 @@ class GatewayService:
             "generation_started",
             request_id=request_id,
             provider=provider_name,
-            model=request.model,
+            model=decision.selected_model,
             status="started",
         )
         start = perf_counter()
         try:
             provider_result = await provider_adapter.generate(
-                request=request,
+                request=selected_request,
                 request_id=request_id,
             )
         except ProviderError:
@@ -98,7 +111,7 @@ class GatewayService:
                     request_id=request_id,
                     event_type="generation_failed",
                     provider=provider_name,
-                    model=request.model,
+                    model=decision.selected_model,
                     status="failed",
                     error_type="ProviderError",
                     latency_ms=latency_ms,
@@ -108,7 +121,7 @@ class GatewayService:
                 "generation_failed",
                 request_id=request_id,
                 provider=provider_name,
-                model=request.model,
+                model=decision.selected_model,
                 status="failed",
                 error_type="ProviderError",
                 latency_ms=latency_ms,

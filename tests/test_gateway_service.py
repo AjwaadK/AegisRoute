@@ -6,9 +6,13 @@ from typing import Any
 import pytest
 
 from app.core.logging import LOGGER_NAME
-from app.errors import InvalidModelError, ProviderError
+from app.errors import ModelNotFoundError, ProviderError, ProviderNotFoundError
 from app.providers.base import ProviderAdapter
 from app.repositories.request_log import InMemoryRequestLogRepository, NoopRequestLogRepository
+from app.routing.contracts import RoutingDecision, RoutingRequest
+from app.routing.model_registry import ModelDefinition, ModelRegistry
+from app.routing.policy import DeterministicRoutingPolicy, RoutingPolicy
+from app.routing.provider_registry import ProviderRegistry
 from app.schemas.generation import GenerateRequest, ProviderResult
 from app.services.gateway import GatewayService
 
@@ -52,6 +56,33 @@ class FailingRequestLogRepository:
         raise RuntimeError("request log unavailable")
 
 
+def make_service(
+    provider: ProviderAdapter | None = None,
+    *,
+    routing_policy: RoutingPolicy | None = None,
+    provider_registry: ProviderRegistry | None = None,
+    request_log_repository: Any = None,
+) -> GatewayService:
+    configured_provider = provider or CapturingProviderAdapter()
+    registry = provider_registry or ProviderRegistry([configured_provider])
+    policy = routing_policy or DeterministicRoutingPolicy(
+        ModelRegistry(
+            [
+                ModelDefinition(
+                    name="mock-model-v1",
+                    providers=(configured_provider.provider_name,),
+                )
+            ]
+        ),
+        registry,
+    )
+    return GatewayService(
+        routing_policy=policy,
+        provider_registry=registry,
+        request_log_repository=request_log_repository,
+    )
+
+
 def make_request(model: str = "mock-model-v1") -> GenerateRequest:
     return GenerateRequest(
         model=model,
@@ -66,7 +97,7 @@ def logged_payloads(caplog) -> list[dict[str, Any]]:
 
 
 def test_gateway_service_defaults_to_noop_request_log_repository() -> None:
-    service = GatewayService(provider_adapter=CapturingProviderAdapter())
+    service = make_service()
 
     assert isinstance(service.request_log_repository, NoopRequestLogRepository)
 
@@ -139,7 +170,7 @@ def test_in_memory_events_store_explicit_fields() -> None:
 
 def test_generate_returns_public_response() -> None:
     request_id = "request-123"
-    service = GatewayService(provider_adapter=CapturingProviderAdapter())
+    service = make_service()
 
     response = asyncio.run(service.generate(request=make_request(), request_id=request_id))
 
@@ -151,19 +182,18 @@ def test_generate_returns_public_response() -> None:
     assert response.output_tokens >= 0
 
 
-def test_generate_unsupported_model_raises_invalid_model_error() -> None:
+def test_generate_unknown_model_propagates_model_not_found_error() -> None:
     request = make_request(model="unknown-model")
-    service = GatewayService(provider_adapter=CapturingProviderAdapter())
+    service = make_service()
 
-    with pytest.raises(InvalidModelError) as exc_info:
+    with pytest.raises(ModelNotFoundError) as exc_info:
         asyncio.run(service.generate(request=request, request_id="request-123"))
 
-    assert exc_info.value.requested_model == "unknown-model"
-    assert exc_info.value.valid_models == ("mock-model-v1",)
+    assert exc_info.value.model_name == "unknown-model"
 
 
 def test_generate_response_does_not_expose_provider() -> None:
-    service = GatewayService(provider_adapter=CapturingProviderAdapter())
+    service = make_service()
 
     response = asyncio.run(service.generate(request=make_request(), request_id="request-123"))
 
@@ -172,7 +202,7 @@ def test_generate_response_does_not_expose_provider() -> None:
 
 def test_generate_passes_request_id_to_provider() -> None:
     provider_adapter = CapturingProviderAdapter()
-    service = GatewayService(provider_adapter=provider_adapter)
+    service = make_service(provider_adapter)
 
     asyncio.run(service.generate(request=make_request(), request_id="request-abc"))
 
@@ -180,7 +210,7 @@ def test_generate_passes_request_id_to_provider() -> None:
 
 
 def test_generate_provider_error_logs_failure(caplog) -> None:
-    service = GatewayService(provider_adapter=FailingProviderAdapter())
+    service = make_service(FailingProviderAdapter())
 
     with caplog.at_level(logging.INFO, logger=LOGGER_NAME), pytest.raises(ProviderError):
         asyncio.run(service.generate(request=make_request(), request_id="request-123"))
@@ -198,8 +228,8 @@ def test_generate_provider_error_logs_failure(caplog) -> None:
 
 def test_generate_creates_started_request_log_and_completion_event() -> None:
     repository = InMemoryRequestLogRepository()
-    service = GatewayService(
-        provider_adapter=CapturingProviderAdapter(),
+    service = make_service(
+        CapturingProviderAdapter(),
         request_log_repository=repository,
     )
 
@@ -229,8 +259,8 @@ def test_generate_creates_started_request_log_and_completion_event() -> None:
 
 def test_generate_marks_completed_on_success() -> None:
     repository = InMemoryRequestLogRepository()
-    service = GatewayService(
-        provider_adapter=CapturingProviderAdapter(),
+    service = make_service(
+        CapturingProviderAdapter(),
         request_log_repository=repository,
     )
 
@@ -246,8 +276,8 @@ def test_generate_marks_completed_on_success() -> None:
 
 def test_generate_marks_failed_on_provider_error() -> None:
     repository = InMemoryRequestLogRepository()
-    service = GatewayService(
-        provider_adapter=FailingProviderAdapter(),
+    service = make_service(
+        FailingProviderAdapter(),
         request_log_repository=repository,
     )
 
@@ -267,8 +297,8 @@ def test_generate_marks_failed_on_provider_error() -> None:
 
 
 def test_request_log_insert_failure_does_not_fail_successful_generation(caplog) -> None:
-    service = GatewayService(
-        provider_adapter=CapturingProviderAdapter(),
+    service = make_service(
+        CapturingProviderAdapter(),
         request_log_repository=FailingRequestLogRepository(),
     )
 
@@ -283,8 +313,8 @@ def test_request_log_insert_failure_does_not_fail_successful_generation(caplog) 
 
 
 def test_request_log_update_failure_during_provider_failure_reraises_provider_error(caplog) -> None:
-    service = GatewayService(
-        provider_adapter=FailingProviderAdapter(),
+    service = make_service(
+        FailingProviderAdapter(),
         request_log_repository=FailingRequestLogRepository(),
     )
 
@@ -296,3 +326,120 @@ def test_request_log_update_failure_during_provider_failure_reraises_provider_er
     assert update_failures
     assert all(payload["error_type"] == "RuntimeError" for payload in update_failures)
     assert any(payload["event"] == "generation_failed" for payload in payloads)
+
+
+def test_routing_policy_receives_requested_model_and_selected_provider_is_invoked() -> None:
+    selected = CapturingProviderAdapter()
+
+    class OtherProvider(CapturingProviderAdapter):
+        provider_name = "other"
+
+    other = OtherProvider()
+
+    class CapturingPolicy:
+        def __init__(self) -> None:
+            self.request: RoutingRequest | None = None
+
+        def route(self, request: RoutingRequest) -> RoutingDecision:
+            self.request = request
+            return RoutingDecision(
+                requested_model=request.requested_model,
+                selected_model="provider-model-v2",
+                provider_name="capturing",
+                reason="test selection",
+            )
+
+    policy = CapturingPolicy()
+    service = make_service(
+        routing_policy=policy,
+        provider_registry=ProviderRegistry([selected, other]),
+    )
+
+    response = asyncio.run(
+        service.generate(request=make_request(), request_id="request-routing")
+    )
+
+    assert policy.request == RoutingRequest(requested_model="mock-model-v1")
+    assert selected.request_id == "request-routing"
+    assert other.request_id is None
+    assert response.model == "provider-model-v2"
+
+
+def test_routing_decision_selected_model_is_passed_to_provider() -> None:
+    provider = CapturingProviderAdapter()
+
+    class SelectedModelPolicy:
+        def route(self, request: RoutingRequest) -> RoutingDecision:
+            return RoutingDecision(
+                requested_model=request.requested_model,
+                selected_model="provider-model-v2",
+                provider_name="capturing",
+                reason="model alias",
+            )
+
+    response = asyncio.run(
+        make_service(
+            routing_policy=SelectedModelPolicy(),
+            provider_registry=ProviderRegistry([provider]),
+        ).generate(request=make_request(), request_id="request-selected-model")
+    )
+
+    assert response.model == "provider-model-v2"
+
+
+def test_missing_selected_provider_propagates_and_logs_invariant(caplog) -> None:
+    class MissingProviderPolicy:
+        def route(self, request: RoutingRequest) -> RoutingDecision:
+            return RoutingDecision(
+                requested_model=request.requested_model,
+                selected_model="provider-model-v2",
+                provider_name="missing",
+                reason="misconfigured route",
+            )
+
+    registry = ProviderRegistry([CapturingProviderAdapter()])
+    service = make_service(
+        routing_policy=MissingProviderPolicy(),
+        provider_registry=registry,
+    )
+
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME), pytest.raises(
+        ProviderNotFoundError
+    ):
+        asyncio.run(service.generate(request=make_request(), request_id="request-missing"))
+
+    invariant = next(
+        payload
+        for payload in logged_payloads(caplog)
+        if payload["event"] == "routing_invariant_violation"
+    )
+    assert invariant == {
+        "event": "routing_invariant_violation",
+        "request_id": "request-missing",
+        "requested_model": "mock-model-v1",
+        "selected_model": "provider-model-v2",
+        "missing_provider": "missing",
+        "routing_reason": "misconfigured route",
+        "registered_providers": ["capturing"],
+    }
+
+
+def test_routing_decision_is_logged(caplog) -> None:
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        asyncio.run(
+            make_service().generate(
+                request=make_request(),
+                request_id="request-decision",
+            )
+        )
+
+    decision = next(
+        payload
+        for payload in logged_payloads(caplog)
+        if payload["event"] == "routing_decision"
+    )
+    assert decision["request_id"] == "request-decision"
+    assert decision["requested_model"] == "mock-model-v1"
+    assert decision["selected_model"] == "mock-model-v1"
+    assert decision["provider_name"] == "capturing"
+    assert decision["routing_reason"] == "selected first configured provider"
