@@ -29,3 +29,10 @@
   results are recorded in the feature handoff.
 - Next likely step: Query and aggregate persisted routing outcomes for
   operational diagnostics.
+
+### Follow-up: PostgreSQL Test Isolation
+
+- Migration and SQLAlchemy repository tests now run in disposable PostgreSQL schemas.
+- This prevents ORM-created schema state from drifting from Alembic revision state.
+- Shared public database schemas are no longer modified by integration tests.
+- Two consecutive configured runs passed with 105 tests.
