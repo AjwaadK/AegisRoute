@@ -84,5 +84,10 @@ def test_real_composition_routes_mock_model_to_mock(monkeypatch: pytest.MonkeyPa
             container.gateway_service.provider_registry
             is container.provider_registry
         )
+        assert container.routing_analytics_service is not None
+        assert (
+            container.routing_analytics_service._repository.__class__.__name__
+            == "SQLAlchemyRoutingAnalyticsRepository"
+        )
     finally:
         container.dispose()
