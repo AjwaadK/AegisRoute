@@ -30,6 +30,29 @@
 - Next likely step: Query and aggregate persisted routing outcomes for
   operational diagnostics.
 
+### Follow-up: PostgreSQL Test Isolation
+
+- Migration and SQLAlchemy repository tests now run in disposable PostgreSQL schemas.
+- This prevents ORM-created schema state from drifting from Alembic revision state.
+- Shared public database schemas are no longer modified by integration tests.
+- Two consecutive configured runs passed with 105 tests.
+
+## Routing Analytics Query Layer V1 — 2026-07-30
+
+- Metrics: Added request totals, success/failure rates, nullable-latency
+  averages, provider/model counts, route distribution, provider metrics, and
+  failure groupings by error type and lifecycle stage.
+- Query boundary: A separate read repository performs six bounded PostgreSQL
+  aggregates and returns immutable analytics values to a service; HTTP receives
+  only typed summaries.
+- Semantics: Null dimensions are omitted, null latency is excluded, routed
+  events distinguish before/after-routing failures, and time windows are
+  inclusive at start and exclusive at end.
+- Validation: Focused and full-suite pass/skip/warning counts are recorded in
+  the implementation handoff.
+- Next likely step: Observe production query plans and add an index only when
+  measured workload demonstrates a need.
+
 ## Prometheus Metrics V1 — 2026-07-31
 
 - Metrics added: Live generation request, completion, failure, provider-call,

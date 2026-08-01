@@ -5,12 +5,14 @@ from dataclasses import dataclass, field
 from sqlalchemy.engine import Engine
 from prometheus_client import CollectorRegistry
 
+from app.analytics.service import RoutingAnalyticsService
 from app.db.session import create_database_engine, create_session_factory
 from app.observability.metrics import ApplicationMetrics, NoopApplicationMetrics
 from app.observability.prometheus import PrometheusApplicationMetrics
 from app.providers.base import ProviderAdapter
 from app.providers.mock import MockProviderAdapter
 from app.repositories.request_log import SQLAlchemyRequestLogRepository
+from app.repositories.sqlalchemy_routing_analytics import SQLAlchemyRoutingAnalyticsRepository
 from app.routing.model_registry import ModelDefinition, ModelRegistry
 from app.routing.policy import DeterministicRoutingPolicy, RoutingPolicy
 from app.routing.provider_registry import ProviderRegistry
@@ -31,6 +33,7 @@ class ApplicationContainer:
     gateway_service: GatewayService
     metrics_registry: CollectorRegistry = field(default_factory=CollectorRegistry)
     metrics: ApplicationMetrics = field(default_factory=NoopApplicationMetrics)
+    routing_analytics_service: RoutingAnalyticsService | None = None
     model_registry: ModelRegistry = field(default_factory=_default_model_registry)
     provider_registry: ProviderRegistry | None = None
     routing_policy: RoutingPolicy | None = None
@@ -50,6 +53,9 @@ def build_application_container(
     try:
         session_factory = create_session_factory(engine)
         request_log_repository = SQLAlchemyRequestLogRepository(session_factory)
+        routing_analytics_service = RoutingAnalyticsService(
+            SQLAlchemyRoutingAnalyticsRepository(session_factory)
+        )
         configured_provider = provider or MockProviderAdapter()
         provider_registry = ProviderRegistry(
             {configured_provider.provider_name: configured_provider}
@@ -80,6 +86,7 @@ def build_application_container(
             gateway_service=gateway_service,
             metrics_registry=metrics_registry,
             metrics=metrics,
+            routing_analytics_service=routing_analytics_service,
             model_registry=configured_models,
             provider_registry=provider_registry,
             routing_policy=routing_policy,
