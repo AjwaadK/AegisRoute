@@ -3,8 +3,11 @@
 from dataclasses import dataclass, field
 
 from sqlalchemy.engine import Engine
+from prometheus_client import CollectorRegistry
 
 from app.db.session import create_database_engine, create_session_factory
+from app.observability.metrics import ApplicationMetrics, NoopApplicationMetrics
+from app.observability.prometheus import PrometheusApplicationMetrics
 from app.providers.base import ProviderAdapter
 from app.providers.mock import MockProviderAdapter
 from app.repositories.request_log import SQLAlchemyRequestLogRepository
@@ -26,6 +29,8 @@ class ApplicationContainer:
 
     engine: Engine
     gateway_service: GatewayService
+    metrics_registry: CollectorRegistry = field(default_factory=CollectorRegistry)
+    metrics: ApplicationMetrics = field(default_factory=NoopApplicationMetrics)
     model_registry: ModelRegistry = field(default_factory=_default_model_registry)
     provider_registry: ProviderRegistry | None = None
     routing_policy: RoutingPolicy | None = None
@@ -62,14 +67,19 @@ def build_application_container(
             configured_models,
             provider_registry,
         )
+        metrics_registry = CollectorRegistry()
+        metrics = PrometheusApplicationMetrics(metrics_registry)
         gateway_service = GatewayService(
             routing_policy=routing_policy,
             provider_registry=provider_registry,
             request_log_repository=request_log_repository,
+            metrics=metrics,
         )
         return ApplicationContainer(
             engine=engine,
             gateway_service=gateway_service,
+            metrics_registry=metrics_registry,
+            metrics=metrics,
             model_registry=configured_models,
             provider_registry=provider_registry,
             routing_policy=routing_policy,

@@ -2,7 +2,8 @@ from uuid import uuid4
 
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.errors import (
     InvalidModelError,
@@ -25,6 +26,15 @@ def get_gateway_service(request: Request) -> GatewayService:
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/metrics", include_in_schema=False)
+async def metrics(request: Request) -> Response:
+    registry = request.app.state.container.metrics_registry
+    return Response(
+        content=generate_latest(registry),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 
 @router.post("/generate", response_model=GenerateResponse)

@@ -1,10 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from prometheus_client import CollectorRegistry
 
 from app.api.routes import get_gateway_service
 from app.composition import ApplicationContainer, build_application_container
 from app.main import create_app
+from app.observability.prometheus import PrometheusApplicationMetrics
 from app.models.model_registry import ModelDefinition, ModelRegistry
 from app.providers.mock import MockProviderAdapter
 from app.routing.contracts import RoutingDecision, RoutingRequest
@@ -84,5 +86,9 @@ def test_real_composition_routes_mock_model_to_mock(monkeypatch: pytest.MonkeyPa
             container.gateway_service.provider_registry
             is container.provider_registry
         )
+        assert isinstance(container.metrics_registry, CollectorRegistry)
+        assert isinstance(container.metrics, PrometheusApplicationMetrics)
+        assert container.metrics.registry is container.metrics_registry
+        assert container.gateway_service.metrics is container.metrics
     finally:
         container.dispose()
