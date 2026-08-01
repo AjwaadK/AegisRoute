@@ -90,5 +90,10 @@ def test_real_composition_routes_mock_model_to_mock(monkeypatch: pytest.MonkeyPa
         assert isinstance(container.metrics, PrometheusApplicationMetrics)
         assert container.metrics.registry is container.metrics_registry
         assert container.gateway_service.metrics is container.metrics
+        assert container.routing_analytics_service is not None
+        assert (
+            container.routing_analytics_service._repository.__class__.__name__
+            == "SQLAlchemyRoutingAnalyticsRepository"
+        )
     finally:
         container.dispose()

@@ -1,8 +1,8 @@
+from datetime import datetime
+from typing import Annotated, cast
 from uuid import uuid4
 
-from typing import Annotated, cast
-
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.errors import (
@@ -12,6 +12,8 @@ from app.errors import (
     ProviderNotFoundError,
 )
 from app.schemas.generation import GenerateRequest, GenerateResponse
+from app.schemas.analytics import RoutingSummary
+from app.analytics.service import InvalidAnalyticsTimeRangeError, RoutingAnalyticsService
 from app.services.gateway import GatewayService
 
 router = APIRouter()
@@ -21,6 +23,13 @@ def get_gateway_service(request: Request) -> GatewayService:
     """Retrieve the process-scoped gateway assembled during application startup."""
 
     return cast(GatewayService, request.app.state.container.gateway_service)
+
+
+def get_routing_analytics_service(request: Request) -> RoutingAnalyticsService:
+    service = request.app.state.container.routing_analytics_service
+    if service is None:
+        raise RuntimeError("Routing analytics service is not configured")
+    return cast(RoutingAnalyticsService, service)
 
 
 @router.get("/health")
@@ -35,6 +44,28 @@ async def metrics(request: Request) -> Response:
         content=generate_latest(registry),
         media_type=CONTENT_TYPE_LATEST,
     )
+
+
+@router.get("/analytics/routing-summary", response_model=RoutingSummary)
+async def routing_summary(
+    analytics_service: Annotated[
+        RoutingAnalyticsService, Depends(get_routing_analytics_service)
+    ],
+    start_time: Annotated[datetime | None, Query()] = None,
+    end_time: Annotated[datetime | None, Query()] = None,
+) -> RoutingSummary:
+    try:
+        return await analytics_service.get_routing_summary(
+            start_time=start_time,
+            end_time=end_time,
+        )
+    except InvalidAnalyticsTimeRangeError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "analytics_unavailable", "message": "Routing analytics are unavailable"},
+        ) from exc
 
 
 @router.post("/generate", response_model=GenerateResponse)
