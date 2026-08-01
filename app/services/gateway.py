@@ -1,10 +1,11 @@
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from hashlib import sha256
 from time import perf_counter
 from typing import Any
 
 from app.core.logging import log_event
 from app.errors import ModelNotFoundError, ProviderError, ProviderNotFoundError
+from app.observability.metrics import ApplicationMetrics, NoopApplicationMetrics
 from app.repositories.request_log import NoopRequestLogRepository, RequestLogRepository
 from app.routing.contracts import RoutingDecision, RoutingRequest
 from app.routing.policy import RoutingPolicy
@@ -20,13 +21,21 @@ class GatewayService:
         routing_policy: RoutingPolicy | None = None,
         provider_registry: ProviderRegistry | None = None,
         request_log_repository: RequestLogRepository | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self.routing_policy = routing_policy
         self.provider_registry = provider_registry
         self.request_log_repository = request_log_repository or NoopRequestLogRepository()
+        self.metrics = metrics or NoopApplicationMetrics()
 
     async def generate(self, request: GenerateRequest, request_id: str) -> GenerateResponse:
+        metrics_lifecycle_start = perf_counter()
+        self._record_metric("record_request_started", self.metrics.record_request_started)
         if self.routing_policy is None or self.provider_registry is None:
+            self._record_metric(
+                "record_request_failed",
+                lambda: self.metrics.record_request_failed("RuntimeError", "internal"),
+            )
             raise RuntimeError("GatewayService routing dependencies are not configured")
 
         lifecycle_start = perf_counter()
@@ -46,6 +55,15 @@ class GatewayService:
         try:
             decision = self.routing_policy.route(routing_request)
         except (ModelNotFoundError, ProviderNotFoundError) as exc:
+            error_type = type(exc).__name__
+            self._record_metric(
+                "record_routing_failure",
+                lambda: self.metrics.record_routing_failure(error_type),
+            )
+            self._record_metric(
+                "record_request_failed",
+                lambda: self.metrics.record_request_failed(error_type, "routing"),
+            )
             latency_ms = int((perf_counter() - lifecycle_start) * 1000)
             await self._persist_request_log_update(
                 request_id=request_id,
@@ -74,6 +92,17 @@ class GatewayService:
                     decision=None,
                 )
             raise
+        except Exception as exc:
+            error_type = type(exc).__name__
+            self._record_metric(
+                "record_routing_failure",
+                lambda: self.metrics.record_routing_failure(error_type),
+            )
+            self._record_metric(
+                "record_request_failed",
+                lambda: self.metrics.record_request_failed(error_type, "internal"),
+            )
+            raise
 
         log_event(
             "routing_decision",
@@ -98,6 +127,15 @@ class GatewayService:
         try:
             provider_adapter = self.provider_registry.get(decision.provider_name)
         except ProviderNotFoundError as exc:
+            error_type = type(exc).__name__
+            self._record_metric(
+                "record_routing_failure",
+                lambda: self.metrics.record_routing_failure(error_type),
+            )
+            self._record_metric(
+                "record_request_failed",
+                lambda: self.metrics.record_request_failed(error_type, "routing"),
+            )
             latency_ms = int((perf_counter() - lifecycle_start) * 1000)
             await self._persist_request_log_update(
                 request_id=request_id,
@@ -115,6 +153,17 @@ class GatewayService:
                 decision=decision,
             )
             raise
+        except Exception as exc:
+            error_type = type(exc).__name__
+            self._record_metric(
+                "record_routing_failure",
+                lambda: self.metrics.record_routing_failure(error_type),
+            )
+            self._record_metric(
+                "record_request_failed",
+                lambda: self.metrics.record_request_failed(error_type, "internal"),
+            )
+            raise
 
         provider_name = decision.provider_name
         selected_request = request.model_copy(
@@ -129,13 +178,35 @@ class GatewayService:
             lifecycle_stage="provider_invocation",
         )
         start = perf_counter()
+        self._record_metric(
+            "record_provider_call",
+            lambda: self.metrics.record_provider_call(
+                provider_name,
+                decision.selected_model,
+            ),
+        )
         try:
             provider_result = await provider_adapter.generate(
                 request=selected_request,
                 request_id=request_id,
             )
-        except ProviderError:
+        except ProviderError as exc:
             latency_ms = int((perf_counter() - start) * 1000)
+            metrics_latency_seconds = perf_counter() - metrics_lifecycle_start
+            error_type = type(exc).__name__
+            self._record_metric(
+                "record_provider_failure",
+                lambda: self.metrics.record_provider_failure(
+                    provider_name,
+                    decision.selected_model,
+                    error_type,
+                    metrics_latency_seconds,
+                ),
+            )
+            self._record_metric(
+                "record_request_failed",
+                lambda: self.metrics.record_request_failed(error_type, "provider"),
+            )
             await self._persist_request_log_update(
                 request_id=request_id,
                 operation="mark_failed",
@@ -154,6 +225,23 @@ class GatewayService:
                 error_type="ProviderError",
                 latency_ms=latency_ms,
                 lifecycle_stage="provider_invocation",
+            )
+            raise
+        except Exception as exc:
+            metrics_latency_seconds = perf_counter() - metrics_lifecycle_start
+            error_type = type(exc).__name__
+            self._record_metric(
+                "record_provider_failure",
+                lambda: self.metrics.record_provider_failure(
+                    provider_name,
+                    decision.selected_model,
+                    error_type,
+                    metrics_latency_seconds,
+                ),
+            )
+            self._record_metric(
+                "record_request_failed",
+                lambda: self.metrics.record_request_failed(error_type, "provider"),
             )
             raise
         latency_ms = int((perf_counter() - start) * 1000)
@@ -175,6 +263,14 @@ class GatewayService:
             status="completed",
             latency_ms=latency_ms,
             lifecycle_stage="completed",
+        )
+        self._record_metric(
+            "record_request_completed",
+            lambda: self.metrics.record_request_completed(
+                provider_name,
+                decision.selected_model,
+                perf_counter() - metrics_lifecycle_start,
+            ),
         )
         return GenerateResponse(
             request_id=request_id,
@@ -258,6 +354,16 @@ class GatewayService:
             log_event(
                 "request_log_update_failed",
                 request_id=request_id,
+                operation=operation,
+                error_type=type(exc).__name__,
+            )
+
+    def _record_metric(self, operation: str, action: Callable[[], None]) -> None:
+        try:
+            action()
+        except Exception as exc:
+            log_event(
+                "metrics_recording_failed",
                 operation=operation,
                 error_type=type(exc).__name__,
             )
