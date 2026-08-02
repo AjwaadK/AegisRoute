@@ -73,3 +73,25 @@
   complete configured suite validate isolated registries, exact labels,
   single-count failures, and unchanged generation behavior.
 - Next step: Prometheus server and Grafana Dashboard V1.
+
+## Containerized Local Observability Stack V1 — 2026-08-01
+
+- Feature and services: Added a Docker Compose development stack containing
+  AegisRoute, PostgreSQL, a one-shot migration service, Prometheus, and Grafana.
+- Networking: Compose DNS names connect the application to `postgres`, the
+  Prometheus scrape job to `aegisroute:8000/metrics`, and Grafana to
+  `prometheus:9090`; localhost ports remain available to the developer.
+- Migration ownership: Alembic runs once after PostgreSQL becomes healthy, and
+  the application starts only after migrations complete successfully.
+- Provisioning: Prometheus uses a checked-in 15-second scrape configuration;
+  Grafana loads a stable-UID Prometheus datasource and the checked-in dashboard
+  automatically without persistent UI state.
+- Dashboard: `AegisRoute Overview` shows request and success rates, failures by
+  lifecycle stage, p95 generation latency, provider traffic and failures, and
+  routing failures using only existing application metrics.
+- Validation: The pre-change Python suite passed (114 passed, 14 PostgreSQL
+  integration tests skipped). Static Compose, YAML, JSON, secret, DNS, metric,
+  migration/model, and diff checks were performed; runtime stack validation was
+  unavailable because Docker is not installed in the execution environment.
+- Next likely step: Exercise the stack with representative traffic in a Docker
+  environment, then define alert thresholds and Alertmanager separately.

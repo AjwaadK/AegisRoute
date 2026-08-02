@@ -1,0 +1,113 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Generation requests entering the gateway per second.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "expr": "sum(rate(aegisroute_generation_requests_total[$__rate_interval]))", "legendFormat": "requests", "refId": "A" }
+      ],
+      "title": "Request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Share of generation requests that complete successfully; zero when there is no traffic.",
+      "fieldConfig": { "defaults": { "decimals": 1, "min": 0, "max": 100, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [
+        { "expr": "100 * sum(rate(aegisroute_generation_completed_total[$__rate_interval])) / clamp_min(sum(rate(aegisroute_generation_requests_total[$__rate_interval])), 1e-12)", "legendFormat": "success", "refId": "A" }
+      ],
+      "title": "Success rate",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Generation failures per second grouped by lifecycle stage.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 7 },
+      "id": 3,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum by (failure_stage) (rate(aegisroute_generation_failed_total[$__rate_interval]))", "legendFormat": "{{failure_stage}}", "refId": "A" }
+      ],
+      "title": "Failure rate by stage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "95th-percentile end-to-end latency for requests that reached a provider.",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 7 },
+      "id": 4,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(aegisroute_generation_latency_seconds_bucket[$__rate_interval])))", "legendFormat": "p95", "refId": "A" }
+      ],
+      "title": "p95 generation latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Provider invocation attempts per second grouped by provider.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 7 },
+      "id": 5,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum by (provider) (rate(aegisroute_provider_calls_total[$__rate_interval]))", "legendFormat": "{{provider}}", "refId": "A" }
+      ],
+      "title": "Provider traffic",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Upstream provider failures per second grouped by provider.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "id": 6,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum by (provider) (rate(aegisroute_provider_failures_total[$__rate_interval]))", "legendFormat": "{{provider}}", "refId": "A" }
+      ],
+      "title": "Provider failures",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Pre-provider routing failures per second grouped by stable error type.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "id": 7,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum by (error_type) (rate(aegisroute_routing_failures_total[$__rate_interval]))", "legendFormat": "{{error_type}}", "refId": "A" }
+      ],
+      "title": "Routing failures",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "tags": ["aegisroute", "observability"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "AegisRoute Overview",
+  "uid": "aegisroute-overview",
+  "version": 1
+}
