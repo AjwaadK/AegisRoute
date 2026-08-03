@@ -41,6 +41,9 @@ htmlcov/
 *.log
 *.pid
 
+# One-off local database recovery utility
+/scripts/reset_local_postgres.ps1
+
 # Editors and operating-system metadata
 .vscode/
 .idea/
