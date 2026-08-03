@@ -6,6 +6,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.config import load_project_environment
+
+
+load_project_environment()
+
 
 def get_database_url() -> str:
     """Return the configured database URL without exposing credentials."""

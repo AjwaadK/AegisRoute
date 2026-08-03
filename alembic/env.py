@@ -8,8 +8,11 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
+from app.config import load_project_environment
 from app.db.base import Base
 from app.db import models  # noqa: F401 - Import models so Base.metadata is populated for Alembic.
+
+load_project_environment()
 
 config = context.config
 

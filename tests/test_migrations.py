@@ -11,19 +11,19 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
-    not DATABASE_URL,
-    reason="DATABASE_URL is required for PostgreSQL migration tests",
+    not TEST_DATABASE_URL,
+    reason="TEST_DATABASE_URL is required for PostgreSQL migration tests",
 )
 
 
 def test_routing_metadata_upgrade_preserves_data_and_downgrades() -> None:
-    assert DATABASE_URL is not None
+    assert TEST_DATABASE_URL is not None
     config = Config("alembic.ini")
     schema_name = f"aegisroute_migration_{uuid4().hex}"
-    admin_engine = create_engine(DATABASE_URL)
-    database_url = make_url(DATABASE_URL)
+    admin_engine = create_engine(TEST_DATABASE_URL)
+    database_url = make_url(TEST_DATABASE_URL)
     query = dict(database_url.query)
     query["options"] = f"-csearch_path={schema_name}"
     migration_url = database_url.set(query=query).render_as_string(
@@ -33,7 +33,7 @@ def test_routing_metadata_upgrade_preserves_data_and_downgrades() -> None:
     with admin_engine.begin() as connection:
         connection.execute(CreateSchema(schema_name))
 
-    original_database_url = os.environ["DATABASE_URL"]
+    original_database_url = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = migration_url
     engine = create_engine(migration_url)
 
@@ -101,7 +101,10 @@ def test_routing_metadata_upgrade_preserves_data_and_downgrades() -> None:
         assert downgraded_columns["provider"]["nullable"] is False
     finally:
         engine.dispose()
-        os.environ["DATABASE_URL"] = original_database_url
+        if original_database_url is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = original_database_url
         with admin_engine.begin() as connection:
             connection.execute(DropSchema(schema_name, cascade=True))
         admin_engine.dispose()

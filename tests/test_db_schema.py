@@ -36,6 +36,21 @@ def test_get_database_url_returns_environment_value(monkeypatch):
     database_url = "postgresql+psycopg://user:password@localhost:5432/aegisroute_test"
     monkeypatch.setenv("DATABASE_URL", database_url)
     session_module = importlib.import_module("app.db.session")
+    session_module = importlib.reload(session_module)
+
+    assert session_module.get_database_url() == database_url
+
+
+def test_session_loads_database_url_from_project_env(monkeypatch, tmp_path):
+    database_url = "postgresql+psycopg://user:password@localhost:5432/aegisroute_test"
+    (tmp_path / ".env").write_text(
+        f"DATABASE_URL={database_url}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr("app.config.PROJECT_ROOT", tmp_path)
+    session_module = importlib.import_module("app.db.session")
+    session_module = importlib.reload(session_module)
 
     assert session_module.get_database_url() == database_url
 

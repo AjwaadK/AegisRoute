@@ -23,16 +23,19 @@ from app.repositories.request_log import SQLAlchemyRequestLogRepository
 from app.schemas.generation import GenerateRequest, ProviderResult
 
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="DATABASE_URL is required for PostgreSQL integration tests")
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+pytestmark = pytest.mark.skipif(
+    not TEST_DATABASE_URL,
+    reason="TEST_DATABASE_URL is required for PostgreSQL integration tests",
+)
 
 
 @pytest.fixture(scope="module")
 def session_factory() -> Generator[sessionmaker[Session], None, None]:
-    assert DATABASE_URL is not None
+    assert TEST_DATABASE_URL is not None
     schema_name = f"aegisroute_repository_{uuid4().hex}"
-    admin_engine = create_engine(DATABASE_URL)
-    database_url = make_url(DATABASE_URL)
+    admin_engine = create_engine(TEST_DATABASE_URL)
+    database_url = make_url(TEST_DATABASE_URL)
     query = dict(database_url.query)
     query["options"] = f"-csearch_path={schema_name}"
     isolated_url = database_url.set(query=query)
@@ -42,14 +45,17 @@ def session_factory() -> Generator[sessionmaker[Session], None, None]:
 
     engine = create_engine(isolated_url)
     Base.metadata.create_all(engine)
-    original_database_url = os.environ["DATABASE_URL"]
+    original_database_url = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = isolated_url.render_as_string(
         hide_password=False
     )
     try:
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     finally:
-        os.environ["DATABASE_URL"] = original_database_url
+        if original_database_url is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = original_database_url
         engine.dispose()
         with admin_engine.begin() as connection:
             connection.execute(DropSchema(schema_name, cascade=True))

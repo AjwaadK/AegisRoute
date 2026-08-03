@@ -50,6 +50,21 @@ provisioning files.
 5. Send representative `POST /generate` requests, then confirm request,
    latency, provider, and applicable failure panels receive data.
 
+## Run PostgreSQL integration tests
+
+The migration and SQLAlchemy repository integration tests require a separate,
+explicit `TEST_DATABASE_URL`. They do not use the application's `DATABASE_URL`,
+which prevents test schemas and migrations from accidentally targeting the
+configured application database.
+
+```powershell
+$env:TEST_DATABASE_URL="postgresql+psycopg://postgres:<test-password>@localhost:5432/aegisroute_test"
+python -m pytest tests/test_migrations.py tests/test_sqlalchemy_request_log_repository.py
+```
+
+The PostgreSQL user, password, host, port, and database in that URL must match
+the test server that is actually listening on the host machine.
+
 ## Generate sample traffic
 
 With the Compose stack running, use the development traffic generator from the
