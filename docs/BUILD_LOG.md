@@ -95,3 +95,21 @@
   unavailable because Docker is not installed in the execution environment.
 - Next likely step: Exercise the stack with representative traffic in a Docker
   environment, then define alert thresholds and Alertmanager separately.
+
+## Traffic Generator V1 — 2026-08-03
+
+- Feature and purpose: Added a standalone asynchronous HTTP CLI that generates
+  representative local traffic so live AegisRoute observability panels can be
+  exercised without changing application runtime behavior.
+- Controls: Target base URL, duration, bounded worker concurrency, intentional
+  unsupported-model failure rate, request timeout, and valid model are
+  configurable.
+- Summary statistics: Reports total requests, successful responses, expected
+  injected failures, unexpected HTTP failures, transport errors, elapsed time,
+  throughput, and minimum, average, p95, and maximum response latency.
+- Validation: Focused mocked-transport tests cover argument validation, outcome
+  classification, safe latency aggregation, bounded concurrency, and shared
+  client reuse; complete-suite and repository hygiene results are recorded in
+  the feature handoff.
+- Next likely step: Use measured development traffic patterns to inform a
+  separate, explicitly scoped load-testing or alert-threshold effort.
