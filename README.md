@@ -68,5 +68,7 @@ PostgreSQL integration tests require an explicit `TEST_DATABASE_URL`. See
 - [Local observability](docs/local-observability.md)
 - [Architecture decisions](docs/adr)
 
-No open-source license has been selected yet. Public visibility alone does not
-grant permission to copy, modify, or redistribute this project.
+## License
+
+AegisRoute is licensed under the Apache License 2.0. See [LICENSE](LICENSE)
+for details.

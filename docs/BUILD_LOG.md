@@ -113,3 +113,11 @@
   the feature handoff.
 - Next likely step: Use measured development traffic patterns to inform a
   separate, explicitly scoped load-testing or alert-threshold effort.
+
+## Apache License 2.0 — 2026-08-04
+
+- Added the canonical Apache License 2.0 text and a concise NOTICE file.
+- Added README documentation linking to the repository license.
+- No application behavior changed.
+- Validation confirmed the license files, documentation link, intended change
+  scope, repository hygiene, and passing test suite.
