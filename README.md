@@ -1,9 +1,30 @@
 # AegisRoute
 
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=white)](https://prometheus.io/)
+[![Grafana](https://img.shields.io/badge/Grafana-F46800?logo=grafana&logoColor=white)](https://grafana.com/)
+[![Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/AjwaadK/AegisRoute/actions/workflows/quality.yml/badge.svg)](https://github.com/AjwaadK/AegisRoute/actions/workflows/quality.yml)
+![Tests](https://img.shields.io/badge/tests-140%20passing-brightgreen)
+
 AegisRoute is an early-stage AI gateway focused on deterministic model routing,
 request lifecycle persistence, routing analytics, and Prometheus observability.
 The current provider is a mock implementation intended for development and
 testing.
+
+## Current Stage
+
+- ✅ Gateway
+- ✅ Persistence
+- ✅ Observability
+- 🚧 Provider Resilience
+- ⬜ Redis Caching
+- ⬜ Rate Limiting
+- ⬜ Async Workers
+- ⬜ Kubernetes
 
 ## Security status
 
