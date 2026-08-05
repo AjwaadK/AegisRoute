@@ -9,7 +9,12 @@ COPY pyproject.toml alembic.ini ./
 COPY app ./app
 COPY alembic ./alembic
 
-RUN python -m pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir --upgrade "pip>=26.1.2" \
+    && python -m pip install --no-cache-dir . \
+    && addgroup --system aegisroute \
+    && adduser --system --ingroup aegisroute aegisroute
+
+USER aegisroute
 
 EXPOSE 8000
 

@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-aegisroute}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replace-me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
@@ -21,7 +21,7 @@ services:
       dockerfile: Dockerfile
     command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:replace-me@postgres:5432/aegisroute}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -32,9 +32,9 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:replace-me@postgres:5432/aegisroute}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -52,7 +52,7 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -71,9 +71,9 @@ services:
     image: grafana/grafana:12.1.0
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-replace-me}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./infra/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
       - ./infra/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro

@@ -139,7 +139,8 @@ async def run_workers(
                 client,
                 config,
                 stats,
-                intended_failure=random.random() < config.failure_rate,
+                # This controls synthetic traffic distribution, not a security decision.
+                intended_failure=random.random() < config.failure_rate,  # nosec B311
             )
 
     await asyncio.gather(*(worker() for _ in range(config.concurrency)))

@@ -33,3 +33,4 @@ Desktop.ini
 OneDriveTemp
 *.tmp
 *.bak
+/scripts/reset_local_postgres.ps1
