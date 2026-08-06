@@ -152,7 +152,7 @@ def test_generate_provider_error_returns_bad_gateway(client: TestClient, monkeyp
     from app.providers.mock import MockProviderAdapter
 
     async def fail_generate(self, request, request_id):
-        raise ProviderError("provider unavailable")
+        raise ProviderError("mock", message="provider unavailable")
 
     monkeypatch.setattr(MockProviderAdapter, "generate", fail_generate)
     payload = {
@@ -177,7 +177,7 @@ def test_generate_provider_error_logs_generation_failed(client: TestClient, monk
     from app.providers.mock import MockProviderAdapter
 
     async def fail_generate(self, request, request_id):
-        raise ProviderError("provider unavailable")
+        raise ProviderError("mock", message="provider unavailable")
 
     monkeypatch.setattr(MockProviderAdapter, "generate", fail_generate)
     payload = {

@@ -1,3 +1,4 @@
+from app.errors import ProviderError
 from app.providers.base import ProviderAdapter
 from app.schemas.generation import GenerateRequest, ProviderResult
 
@@ -5,9 +6,21 @@ from app.schemas.generation import GenerateRequest, ProviderResult
 class MockProviderAdapter(ProviderAdapter):
     provider_name = "mock"
 
-    async def generate(self, request: GenerateRequest, request_id: str) -> ProviderResult:
+    def __init__(self, failure: ProviderError | None = None) -> None:
+        self.failure = failure
+
+    async def generate(
+        self, request: GenerateRequest, request_id: str
+    ) -> ProviderResult:
+        if self.failure is not None:
+            raise self.failure
+
         last_user_message = next(
-            (message.content for message in reversed(request.messages) if message.role == "user"),
+            (
+                message.content
+                for message in reversed(request.messages)
+                if message.role == "user"
+            ),
             request.messages[-1].content,
         )
         output = f"mock_response:{last_user_message}"
@@ -21,4 +34,3 @@ class MockProviderAdapter(ProviderAdapter):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
-

@@ -39,7 +39,7 @@ class FailingProviderAdapter(ProviderAdapter):
     provider_name = "failing"
 
     async def generate(self, request: GenerateRequest, request_id: str) -> ProviderResult:
-        raise ProviderError("provider unavailable")
+        raise ProviderError(self.provider_name, message="provider unavailable")
 
 
 class FailingRequestLogRepository:

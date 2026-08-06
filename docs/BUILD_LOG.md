@@ -121,3 +121,17 @@
 - No application behavior changed.
 - Validation confirmed the license files, documentation link, intended change
   scope, repository hygiene, and passing test suite.
+
+## Provider Resilience V1 — 2026-08-05
+
+- Added a provider-agnostic `ProviderError` hierarchy for timeout, rate-limit,
+  authentication, unavailability, invalid-request, and internal failures.
+- Provider errors preserve the provider name plus optional provider code and
+  human-readable message while supporting standard Python exception chaining.
+- Added opt-in mock-provider failure injection and comprehensive hierarchy,
+  metadata, chaining, and backward-compatible catch tests.
+- No retries, backoff, fallback routing, timeout policy, or real provider
+  adapter behavior was introduced.
+- Validation: 140 tests passed and 14 PostgreSQL-dependent tests skipped;
+  scoped Ruff and Black checks passed, and Compose structure remained valid.
+  Runtime Compose startup was unavailable because Docker is not installed.

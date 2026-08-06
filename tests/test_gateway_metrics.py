@@ -81,7 +81,7 @@ class FailingProvider(ProviderAdapter):
     provider_name = "unstable"
 
     async def generate(self, request: GenerateRequest, request_id: str) -> ProviderResult:
-        raise ProviderError("free-form upstream message")
+        raise ProviderError(self.provider_name, message="free-form upstream message")
 
 
 def make_request(model: str = "model-v1") -> GenerateRequest:
