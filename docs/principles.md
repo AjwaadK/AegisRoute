@@ -91,3 +91,34 @@ Introduce a new abstraction when:
 - the abstraction reduces coupling without hiding important behavior
 
 Do not introduce an abstraction only because a future feature might need it.
+
+## Gateway and intelligence principles
+
+- **Reliable infrastructure before adaptive intelligence.** A learning system
+  cannot compensate for an unreliable execution and measurement foundation.
+- **Telemetry has stable, machine-readable semantics.** Define bounded fields,
+  lifecycle stages, units, and privacy rules before treating telemetry as
+  training or evaluation evidence.
+- **Logical requests and provider attempts are distinct.** Retries and future
+  fallbacks may create multiple attempts, but they must not inflate application
+  request or outcome counts.
+- **Adapters perform one attempt; orchestration belongs above them.** Keep retry,
+  fallback, deadline, and execution-planning policy outside provider-specific
+  transports.
+- **Routing policy is replaceable and versionable.** Deterministic and future
+  learned policies should share explicit contracts, decision evidence, rollout
+  controls, and rollback paths.
+- **Future intelligence must be explainable.** Operators should be able to
+  inspect the selected target, predicted tradeoffs, confidence, constraints,
+  and rejected alternatives.
+- **Application-specific evidence beats global assumptions when evidence is
+  sufficient.** Use calibrated confidence and safe defaults when it is not.
+- **Do not store raw prompts by default.** Prefer bounded metadata and derived
+  features; require an explicit purpose, access policy, and retention policy for
+  sensitive content.
+- **Earn intelligence-plane complexity.** Do not add feature pipelines, models,
+  or learning infrastructure before trustworthy data and an operational need
+  exist.
+- **Learn from established architecture.** Adopt sound industry patterns rather
+  than avoiding them for novelty; differentiate only where evidence supports a
+  better application-specific outcome.

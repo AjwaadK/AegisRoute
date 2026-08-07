@@ -171,3 +171,19 @@
   recorded in the implementation handoff.
 - Next step: add fallback routing as a separate policy above provider adapters;
   circuit breakers and `Retry-After` support remain deferred.
+
+## Public documentation and long-term architecture refresh — 2026-08-07
+
+- Updated the public README to reflect the implemented Phase I gateway,
+  mock-only provider limitation, security posture, local workflow, and verified
+  provider timeout and bounded-retry behavior.
+- Documented the long-term adaptive inference-control-plane direction and
+  clearly separated it from current capabilities.
+- Reorganized the roadmap into five directional phases from Reliable Gateway
+  through Adaptive Inference Control Plane, with a product-investment
+  classification framework.
+- Clarified the potential future relationship between AegisRoute and Aegis
+  Evaluations as a source of quality and outcome signals.
+- Preserved existing ADR and build history. No runtime architecture,
+  application behavior, tests, schema, migrations, or deployment configuration
+  changed.

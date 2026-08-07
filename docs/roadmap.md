@@ -1,91 +1,141 @@
 # AegisRoute Roadmap
 
-This roadmap is staged to keep the gateway understandable while growing toward production AI infrastructure. Each stage should produce usable value and teach specific engineering concepts.
+AegisRoute is evolving from a reliable gateway toward an adaptive inference
+control plane. The phases below are directional, not rigid release boundaries.
+Prerequisites may be pulled forward when real dependency needs justify it, and
+features may be reclassified as the market and evidence evolve. A checked item
+means the repository currently implements it; an unchecked item is planned or a
+research direction.
 
-## Stage 0: Gateway Foundation
+## Classification framework
 
-- **Purpose:** Establish the minimal gateway architecture.
-- **User/product value:** Developers can send a request to one gateway API and receive a normalized response.
-- **Engineering concepts learned:** FastAPI routing, request validation, provider adapter boundaries, domain errors, structured logging, and tests.
-- **Deliverable:** FastAPI gateway, request validation, provider adapter, mock provider, domain errors, structured logging, and tests.
-- **Deferred:** Real providers, persistence, caching, auth, routing policies, queues, Docker, and dashboards.
+Major investments are assessed with five labels:
 
-## Stage 1: Persistence
+- **Parity:** Expected gateway capability; necessary, but not differentiating.
+- **Enabler:** Creates reliable boundaries, data, or operations needed later.
+- **Differentiator:** Advances application-specific routing or execution value.
+- **Moat candidate:** Could compound through proprietary workload evidence and
+  learning, if real usage and quality validate it.
+- **Distraction:** Adds breadth without advancing current reliability or the
+  learning loop; defer unless evidence changes.
 
-- **Purpose:** Persist request and response metadata for usage analysis and debugging.
-- **User/product value:** Operators can inspect historical usage and understand request behavior over time.
-- **Engineering concepts learned:** PostgreSQL, SQLAlchemy, Alembic migrations, data modeling, and usage queries.
-- **Deliverable:** PostgreSQL-backed request/response metadata logging with queryable usage records.
-- **Deferred:** Full billing, tenant analytics, complex retention policies, and dashboards.
+The label describes strategic intent, not implementation status.
 
-## Stage 2: Provider Routing
+## Phase I: Reliable Gateway — current
 
-- **Purpose:** Support real providers and route requests between them.
-- **User/product value:** Applications can use OpenAI, Gemini, Anthropic, or other providers behind one gateway contract.
-- **Engineering concepts learned:** Provider adapters, timeouts, retries, fallbacks, error mapping, and routing policy design.
-- **Deliverable:** OpenAI/Gemini/Anthropic adapters, basic routing policies, timeouts, retries, and fallbacks.
-- **Deferred:** Cost optimization engines, advanced policy languages, and automatic provider selection.
+**Goal:** Establish a correct, observable execution boundary before adding
+adaptive intelligence.
 
-## Stage 3: Cost and Caching
+**Parity**
 
-- **Purpose:** Track usage cost and avoid repeated work where safe.
-- **User/product value:** Teams can understand spend and reduce latency/cost for repeated requests.
-- **Engineering concepts learned:** Token tracking, cost estimation, Redis caching, cache keys, cache invalidation, and cache hit metrics.
-- **Deliverable:** Token tracking, cost estimation, Redis caching, cache hit metrics, and usage analytics.
-- **Deferred:** Billing systems, budget enforcement, semantic caching, and tenant-level financial controls.
+- [x] FastAPI unified generation endpoint and request validation
+- [x] Provider adapter contract and mock provider
+- [x] Provider and model registries with deterministic routing
+- [x] Typed provider failures and configurable timeouts
+- [x] Bounded retries above single-attempt provider adapters
+- [ ] Real provider adapters
+- [ ] Streaming responses
+- [ ] Fallback routing and circuit breaking
+- [ ] Token accounting and cost estimation
+- [ ] Redis response caching and cache metrics
+- [ ] API-key authentication, authorization, quotas, and rate limiting
+- [ ] Readiness/dependency health checks beyond the current liveness endpoint
+- [ ] Asynchronous workers for long-running requests
+- [ ] Local inference adapters
+- [ ] Kubernetes and production deployment hardening
 
-## Stage 4: Async Workers
+**Enablers**
 
-- **Purpose:** Support queued and long-running inference workflows.
-- **User/product value:** Applications can submit work that does not need to complete during the HTTP request lifecycle.
-- **Engineering concepts learned:** Celery or RQ, background jobs, job statuses, retries, idempotency, and dead job handling.
-- **Deliverable:** Queued requests, job statuses, retry handling, and dead job handling.
-- **Deferred:** Complex workflow orchestration, distributed scheduling, and agent task graphs.
+- [x] PostgreSQL request/event lifecycle persistence
+- [x] Persisted routing decisions and a routing analytics query layer
+- [x] Alembic migrations
+- [x] Prometheus application metrics and `/metrics`
+- [x] Provisioned Grafana dashboard and Docker Compose development stack
+- [x] Development traffic generator and automated test suite
+- [ ] Stable token, cost, attempt, cache, and SLO telemetry semantics
 
-## Stage 5: Benchmarking
+Provider adapters perform one attempt; retry and future fallback orchestration
+belong above them. Phase I remains incomplete until real execution and the
+security/operational fundamentals required by actual deployments are proven.
 
-- **Purpose:** Compare provider and model behavior with repeatable workloads.
-- **User/product value:** Teams can choose provider/model strategies based on latency, throughput, error rate, and cost/request.
-- **Engineering concepts learned:** Benchmark design, measurement, load generation, provider comparison, and result interpretation.
-- **Deliverable:** Benchmarking for latency, throughput, error rate, cost/request, and provider comparison.
-- **Deferred:** Quality evaluation, LLM-as-judge, and automated routing optimization.
+## Phase II: Policy Router
 
-## Stage 6: Observability
+**Goal:** Make deterministic routing expressive, versioned, testable, and
+operator controlled.
 
-- **Purpose:** Make production behavior visible and debuggable.
-- **User/product value:** Operators can detect incidents, investigate failures, and understand system health.
-- **Engineering concepts learned:** Prometheus, Grafana, structured logs, metrics design, tracing concepts, and incident debugging.
-- **Deliverable:** Prometheus metrics, Grafana dashboards, structured logs, and incident debugging workflows. OpenTelemetry can come later.
-- **Deferred:** Full distributed tracing, advanced alerting, and hosted console experiences.
+**Parity / Enablers**
 
-## Stage 7: Local Serving
+- [ ] Versioned deterministic policy framework and decision records
+- [ ] Cost-aware, latency-aware, and reliability-aware routing
+- [ ] SLO-aware constraints and budget enforcement
+- [ ] Privacy and data-residency constraints
+- [ ] Weighted routing and traffic splitting
+- [ ] A/B tests with explicit assignment and outcome semantics
+- [ ] Policy rollout, rollback, and audit controls
 
-- **Purpose:** Support local and self-hosted model runtimes.
-- **User/product value:** Teams can route between cloud providers and local models for privacy, cost, latency, or control.
-- **Engineering concepts learned:** Ollama, vLLM, local/cloud routing, tokens/sec measurement, streaming, and runtime health checks.
-- **Deliverable:** Ollama and vLLM adapters, local/cloud routing, tokens/sec metrics, and streaming support.
-- **Deferred:** GPU orchestration, autoscaling model clusters, and advanced capacity planning.
+This phase does not require machine learning. It creates safe policy semantics
+and experimentation boundaries on which later intelligence can depend.
 
-## Stage 8: Deployment
+## Phase III: Workload Intelligence
 
-- **Purpose:** Make AegisRoute easier to run reliably in real environments.
-- **User/product value:** Teams can deploy the gateway with repeatable operational patterns.
-- **Engineering concepts learned:** Docker Compose, Kubernetes, health checks, readiness probes, CI/CD, and release workflows.
-- **Deliverable:** Docker Compose, Kubernetes manifests, health checks, readiness probes, and GitHub Actions.
-- **Deferred:** Hosted cloud platform, managed upgrades, and multi-region deployment automation.
+**Goal:** Build trustworthy, application-specific evidence without allowing it
+to autonomously control production routing.
 
-## Stage 9: Platform Governance
+**Differentiators / Enablers**
 
-- **Purpose:** Control access, usage, and spend.
-- **User/product value:** Teams can safely expose AegisRoute across applications, teams, and environments.
-- **Engineering concepts learned:** API keys, authentication, rate limits, quotas, budgets, tenant usage, and policy enforcement.
-- **Deliverable:** API keys, auth, rate limits, quotas, budgets, and tenant usage reporting.
-- **Deferred:** Full billing, enterprise SSO, audit logs, and complex organization management.
+- [ ] Workload classification and feature extraction
+- [ ] Workload clustering where labels are unavailable
+- [ ] Empirical model/provider profiles by workload
+- [ ] Evaluation and application-outcome ingestion
+- [ ] Explicit feedback and delayed-outcome linkage
+- [ ] Per-workload quality, latency, cost, and reliability statistics
+- [ ] Data quality, retention, privacy, and drift monitoring
 
-## Stage 10: Ecosystem
+Evaluation data—potentially including signals from Aegis Evaluations—must use
+stable semantics and preserve the distinction between logical requests and
+provider attempts.
 
-- **Purpose:** Expand from gateway to developer and operator ecosystem.
-- **User/product value:** Teams get native clients, terminal workflows, examples, evaluations, and reference applications.
-- **Engineering concepts learned:** SDK design, CLI UX, documentation, examples, benchmark harnesses, evaluation systems, and reference architecture.
-- **Deliverable:** SDK, CLI, docs, examples, AegisRAG, AegisAgent, AegisBench, and AegisEval.
-- **Deferred:** Aegis Cloud until self-hosted value and operational needs are proven.
+## Phase IV: Learned Routing
+
+**Goal:** Recommend and safely validate workload-specific learned policies.
+
+**Differentiators / Moat candidates**
+
+- [ ] Quality, latency, and cost prediction with calibrated confidence
+- [ ] Workload-specific learned routing policies
+- [ ] Contextual bandits where the decision structure and safety constraints
+  make them appropriate
+- [ ] Safe exploration/exploitation limits
+- [ ] Offline policy evaluation and counterfactual analysis
+- [ ] Shadow routing and comparison without user-visible impact
+- [ ] Progressive rollout, rollback, guardrails, and operator approval
+- [ ] Explainable decisions and rejected-alternative context
+
+A learned policy must outperform an appropriate deterministic baseline under
+measured objectives before it controls production traffic.
+
+## Phase V: Adaptive Inference Control Plane
+
+**Goal:** Close a governed feedback loop across application outcomes and
+heterogeneous execution infrastructure.
+
+**Differentiators / Moat candidates**
+
+- [ ] Continuous, monitored multi-objective policy optimization
+- [ ] Joint local/cloud execution optimization
+- [ ] Infrastructure-aware routing and execution planning
+- [ ] GPU, queue, capacity, and deployment-health awareness
+- [ ] Dynamic model and deployment discovery
+- [ ] Automated multi-step execution planning
+- [ ] Continuous experimentation with explainability and safety controls
+
+This phase is a long-term research and product direction, not a claim about the
+current system.
+
+## Deliberate deferrals
+
+Standalone ecosystem products, broad UI suites, billing platforms, general
+agent orchestration, and speculative infrastructure are **Distractions** while
+they do not serve a demonstrated AegisRoute dependency. SDKs, evaluation tools,
+and management surfaces can become Enablers when gateway contracts and real
+workflows justify them. See [Ecosystem](ecosystem.md).

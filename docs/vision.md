@@ -1,141 +1,115 @@
-# Aegis Vision
+# AegisRoute Vision
 
-## Mission
+## Current foundation
 
-Aegis exists to make building, deploying, operating, and scaling AI applications easier. Developers should spend their time building AI products, not rebuilding the same inference infrastructure in every codebase.
+AegisRoute is currently in **Phase I: Reliable Gateway**. It provides a FastAPI
+generation boundary, deterministic model and provider routing, a mock provider,
+PostgreSQL lifecycle persistence and routing analytics, typed provider errors,
+timeouts, bounded retries, and Prometheus/Grafana observability. It does not yet
+connect to a real model provider, and it is not production hardened.
 
-## Vision
+This foundation is useful in its own right, but core gateway parity is necessary
+infrastructure rather than the intended long-term differentiation.
 
-Aegis will become the infrastructure layer between AI applications and AI model providers. Applications should be able to send inference requests through Aegis and rely on reusable infrastructure for provider abstraction, routing, reliability, observability, cost tracking, and operations.
+## North star
 
-## Problem statement
+> AegisRoute is an adaptive inference control plane that learns how each
+> application's AI workloads should execute, continuously optimizing quality,
+> cost, latency, reliability, and infrastructure utilization across models,
+> providers, and deployments.
 
-AI teams repeatedly rebuild the same operational pieces:
+Privacy constraints are part of that optimization: an execution target that
+violates an application's data-handling requirements is not a valid target.
 
-- provider integrations
-- retries and fallbacks
-- routing policies
-- caching
-- request logging and observability
-- benchmarking and evaluation
-- usage, token, and cost tracking
-- authentication and rate limiting
-- local model serving
-- deployment tooling
+The internal principle is:
 
-This creates duplicated work, inconsistent reliability, and weak production visibility.
+> The gateway is the foundation. The learning loop is the product.
 
-## Why AI infrastructure matters
+Both statements describe the long-term direction. The adaptive learning loop
+does **not** exist in the current implementation.
 
-Inference is now a production dependency. Provider outages, latency spikes, model changes, cost surprises, and quality regressions directly affect customer experience. AI applications need infrastructure that makes these failure modes visible, controllable, and recoverable.
+## Why application-specific intelligence
 
-Good AI infrastructure should improve:
+AI workloads differ by task, context, quality threshold, latency objective,
+budget, privacy requirement, and available infrastructure. A globally sensible
+model choice may be poor for a particular application's extraction, support,
+agent, or retrieval workload. AegisRoute's research direction is to use
+application-specific evidence where sufficient evidence exists, while retaining
+safe deterministic policies and operator control.
 
-- reliability during provider failures
-- developer experience when integrating models
-- operational visibility for debugging incidents
-- cost awareness as usage grows
-- portability across providers and model runtimes
+## Long-term optimization loop
 
-## What AegisRoute is
-
-AegisRoute is the current flagship product. It is an AI infrastructure gateway.
-
-Applications send AI inference requests to AegisRoute instead of directly calling model providers.
+The intended loop is conceptual and staged:
 
 ```text
-Application
-  ↓
-AegisRoute
-  ↓
-OpenAI / Anthropic / Gemini / Ollama / vLLM
+Production Requests
+  → Route / Plan Execution
+  → Generate
+  → Collect Telemetry
+  → Evaluate Quality / Outcomes
+  → Update Workload Intelligence
+  → Improve Routing Policy
+  → Route Future Requests Better
+  → repeat
 ```
 
-AegisRoute currently provides a minimal gateway skeleton with request validation, a mock provider adapter, domain errors, structured logging, and tests. It will eventually provide a unified inference API, provider abstraction, routing, retries, fallbacks, logging, token and cost tracking, caching, async workers, benchmarking, observability, local model serving, authentication, rate limiting, SDKs, and deployment support.
+The gateway provides execution evidence. Future evaluation systems may add
+quality and outcome signals. Future workload intelligence may then inform a
+versioned policy, subject to safety, privacy, confidence, and rollout controls.
+Telemetry collection alone is not learning, and evaluation data alone must not
+automatically change production behavior.
 
-The application should not need to know which provider actually handled the request.
+## Long-term conceptual architecture
 
-## Target users
+The following planes are conceptual boundaries, not currently implemented
+services.
 
-Aegis is for:
+### Data Plane
 
-- product engineers building AI features
-- platform engineers supporting AI application teams
-- founders and small teams that need production AI infrastructure without building everything from scratch
-- ML and AI engineers comparing providers, models, latency, quality, and cost
-- operators responsible for uptime, observability, budgets, and incident response
+The latency-sensitive path responsible for request routing and execution,
+caching, rate limiting, retries and fallbacks, provider invocation, and
+telemetry emission. Today's gateway implements only a subset of this boundary.
 
-## Product philosophy
+### Control Plane
 
-Aegis should feel like the infrastructure layer teams wish they had before their first production AI incident.
+The configuration and operational boundary for providers and models,
+credentials, tenants, budgets, policies, configuration, and deployments. These
+capabilities are planned; they are not a current standalone control plane.
 
-Principles:
+### Intelligence Plane
 
-- solve real developer and operator pain
-- make simple use cases simple
-- make production failure modes explicit
-- expose stable APIs that applications can trust
-- prefer useful operational primitives over flashy demos
-- self-host first, hosted platform later
+The future evidence and optimization boundary for workload profiles, evaluation
+data, feature extraction, quality/latency/cost predictors, routing models,
+experimentation, and policy optimization. No intelligence plane exists today.
 
-## Engineering philosophy
+Separating these concerns should allow the request path to remain predictable
+while slower configuration, analysis, evaluation, and learning workflows evolve
+independently.
 
-Prioritize, in order:
+## Explainability as a requirement
 
-1. Correctness
-2. Reliability
-3. Observability
-4. Scalability
-5. Optimization
-6. Fancy features
+Future intelligent routing decisions should be inspectable rather than opaque.
+The eventual decision record should be able to explain:
 
-Every feature should answer:
+- the chosen execution target
+- predicted quality
+- expected latency
+- expected cost
+- relevant reliability and capacity context
+- prediction confidence
+- rejected alternatives and the constraints or tradeoffs behind their rejection
 
-- What customer problem does this solve?
-- What engineering problem does this solve?
-- How does it improve reliability, developer experience, or operations?
-- Should this be built now, later, or never?
+These are requirements for future design, not fields or behaviors available in
+the current API.
 
-## Current MVP
+## Product and engineering posture
 
-The current MVP is intentionally small:
+AegisRoute is an actively developed, self-host-first AI infrastructure project.
+It prioritizes correctness, reliability, observable failure semantics, and
+stable machine-readable evidence before adaptive behavior. Established gateway
+patterns should be adopted when they solve real problems; novelty is not a goal.
+Future intelligence should be added only after data quality and operational need
+justify its complexity.
 
-- FastAPI gateway
-- request and schema validation
-- provider adapter interface
-- mock provider adapter
-- domain errors
-- structured logs
-- service-level tests
-- HTTP boundary tests
-- project dependency metadata
-
-This is the foundation for learning and extending the architecture without prematurely adding production systems.
-
-## Long-term direction
-
-AegisRoute will become the foundation for a broader Aegis ecosystem:
-
-- official SDKs
-- CLI workflows
-- benchmarking
-- evaluation
-- dashboard and console
-- reference RAG and agent applications
-- local model serving support
-- hosted Aegis Cloud
-
-The long-term goal is a self-hostable open-source gateway with a future managed cloud option.
-
-## Intentionally out of scope today
-
-Today, AegisRoute should not include:
-
-- real provider integrations unless the gateway foundation is stable
-- provider registry or routing engine before simple adapters are proven
-- PostgreSQL, Redis, queues, or Docker before the service boundaries justify them
-- authentication, billing, or tenant systems before core gateway behavior is reliable
-- dashboards before useful logs, metrics, and data models exist
-- complex abstractions that are not required by current behavior
-
-The current priority is a correct, understandable gateway skeleton that can grow deliberately.
+See the [Roadmap](roadmap.md), [Principles](principles.md), and
+[Ecosystem](ecosystem.md) for the staged plan and related project concepts.
