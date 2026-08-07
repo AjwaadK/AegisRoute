@@ -6,6 +6,7 @@ from typing import Any
 from app.core.logging import log_event
 from app.errors import ModelNotFoundError, ProviderError, ProviderNotFoundError
 from app.observability.metrics import ApplicationMetrics, NoopApplicationMetrics
+from app.providers.executor import ProviderExecutor
 from app.repositories.request_log import NoopRequestLogRepository, RequestLogRepository
 from app.routing.contracts import RoutingDecision, RoutingRequest
 from app.routing.policy import RoutingPolicy
@@ -22,15 +23,23 @@ class GatewayService:
         provider_registry: ProviderRegistry | None = None,
         request_log_repository: RequestLogRepository | None = None,
         metrics: ApplicationMetrics | None = None,
+        provider_executor: ProviderExecutor | None = None,
     ) -> None:
         self.routing_policy = routing_policy
         self.provider_registry = provider_registry
-        self.request_log_repository = request_log_repository or NoopRequestLogRepository()
+        self.request_log_repository = (
+            request_log_repository or NoopRequestLogRepository()
+        )
         self.metrics = metrics or NoopApplicationMetrics()
+        self.provider_executor = provider_executor or ProviderExecutor()
 
-    async def generate(self, request: GenerateRequest, request_id: str) -> GenerateResponse:
+    async def generate(
+        self, request: GenerateRequest, request_id: str
+    ) -> GenerateResponse:
         metrics_lifecycle_start = perf_counter()
-        self._record_metric("record_request_started", self.metrics.record_request_started)
+        self._record_metric(
+            "record_request_started", self.metrics.record_request_started
+        )
         if self.routing_policy is None or self.provider_registry is None:
             self._record_metric(
                 "record_request_failed",
@@ -166,9 +175,7 @@ class GatewayService:
             raise
 
         provider_name = decision.provider_name
-        selected_request = request.model_copy(
-            update={"model": decision.selected_model}
-        )
+        selected_request = request.model_copy(update={"model": decision.selected_model})
         log_event(
             "generation_started",
             request_id=request_id,
@@ -178,31 +185,18 @@ class GatewayService:
             lifecycle_stage="provider_invocation",
         )
         start = perf_counter()
-        self._record_metric(
-            "record_provider_call",
-            lambda: self.metrics.record_provider_call(
-                provider_name,
-                decision.selected_model,
-            ),
-        )
         try:
-            provider_result = await provider_adapter.generate(
-                request=selected_request,
-                request_id=request_id,
+            provider_result = await self.provider_executor.execute(
+                provider_adapter,
+                selected_request,
+                request_id,
+                decision.selected_model,
+                self.metrics,
+                elapsed_request_seconds=perf_counter() - metrics_lifecycle_start,
             )
         except ProviderError as exc:
             latency_ms = int((perf_counter() - start) * 1000)
-            metrics_latency_seconds = perf_counter() - metrics_lifecycle_start
             error_type = type(exc).__name__
-            self._record_metric(
-                "record_provider_failure",
-                lambda: self.metrics.record_provider_failure(
-                    provider_name,
-                    decision.selected_model,
-                    error_type,
-                    metrics_latency_seconds,
-                ),
-            )
             self._record_metric(
                 "record_request_failed",
                 lambda: self.metrics.record_request_failed(error_type, "provider"),
@@ -228,17 +222,7 @@ class GatewayService:
             )
             raise
         except Exception as exc:
-            metrics_latency_seconds = perf_counter() - metrics_lifecycle_start
             error_type = type(exc).__name__
-            self._record_metric(
-                "record_provider_failure",
-                lambda: self.metrics.record_provider_failure(
-                    provider_name,
-                    decision.selected_model,
-                    error_type,
-                    metrics_latency_seconds,
-                ),
-            )
             self._record_metric(
                 "record_request_failed",
                 lambda: self.metrics.record_request_failed(error_type, "provider"),

@@ -150,3 +150,24 @@
   environment-compatible suite passed 111 tests with one skip. Ruff, scoped
   Black, and diff checks passed. Full HTTP test collection was blocked because
   the environment lacks `httpx`/`httpx2` and network installation is disabled.
+
+## Bounded Provider Retry Policy V1 — 2026-08-07
+
+- Added a provider execution boundary above single-attempt adapters. Retry
+  candidates are timeout, rate-limit, unavailable, and internal provider
+  errors; authentication and invalid-request failures fail immediately.
+- `max_attempts` includes the original call. Retries use zero-based capped
+  exponential backoff, so the first retry uses the base-delay cap, plus full
+  jitter from zero through that cap.
+- Retry decisions use a monotonic total request deadline and require enough
+  remaining time for the selected sleep plus a configured minimum useful
+  attempt budget. Cancellation propagates immediately.
+- Added `aegisroute_provider_retries_total` with bounded `provider` and
+  `error_type` labels. Provider call/failure metrics count attempts; generation
+  completion/failure metrics and persistence continue to count one logical
+  request, including when a retry succeeds.
+- Added deterministic policy, executor, metrics, gateway, persistence,
+  configuration, and composition coverage. Exact validation results are
+  recorded in the implementation handoff.
+- Next step: add fallback routing as a separate policy above provider adapters;
+  circuit breakers and `Retry-After` support remain deferred.

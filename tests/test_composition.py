@@ -1,14 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from prometheus_client import CollectorRegistry
+from sqlalchemy import create_engine
 
 from app.api.routes import get_gateway_service
 from app.composition import ApplicationContainer, build_application_container
-from app.config import ProviderTimeoutSettings
+from app.config import ProviderRetrySettings, ProviderTimeoutSettings
 from app.main import create_app
-from app.observability.prometheus import PrometheusApplicationMetrics
 from app.models.model_registry import ModelDefinition, ModelRegistry
+from app.observability.prometheus import PrometheusApplicationMetrics
 from app.providers.mock import MockProviderAdapter
 from app.routing.contracts import RoutingDecision, RoutingRequest
 from app.schemas.generation import GenerateRequest, GenerateResponse
@@ -126,6 +126,25 @@ def test_composition_applies_provider_timeout_settings(
         assert container.provider_registry is not None
         provider = container.provider_registry.get("mock")
         assert provider.timeout_seconds == 0.25
+    finally:
+        container.dispose()
+
+
+def test_composition_wires_provider_retry_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    settings = ProviderRetrySettings(
+        max_attempts=3,
+        base_delay_seconds=0.1,
+        max_delay_seconds=0.5,
+        request_deadline_seconds=5,
+        min_attempt_budget_seconds=0.2,
+    )
+
+    container = build_application_container(provider_retry_settings=settings)
+    try:
+        assert container.gateway_service.provider_executor.policy.settings is settings
     finally:
         container.dispose()
 

@@ -5,7 +5,9 @@ from prometheus_client import CollectorRegistry
 from app.observability.prometheus import PrometheusApplicationMetrics
 
 
-def sample(registry: CollectorRegistry, name: str, labels: dict[str, str] | None = None) -> float:
+def sample(
+    registry: CollectorRegistry, name: str, labels: dict[str, str] | None = None
+) -> float:
     value = registry.get_sample_value(name, labels or {})
     assert value is not None
     return value
@@ -26,43 +28,70 @@ def test_prometheus_metrics_record_generation_lifecycle() -> None:
         "ProviderError",
         1.25,
     )
+    metrics.record_provider_retry("mock", "ProviderTimeoutError")
 
     assert sample(registry, "aegisroute_generation_requests_total") == 1
     assert sample(registry, "aegisroute_generation_completed_total") == 1
-    assert sample(
-        registry,
-        "aegisroute_generation_failed_total",
-        {"error_type": "ModelNotFoundError", "failure_stage": "routing"},
-    ) == 1
-    assert sample(
-        registry,
-        "aegisroute_routing_failures_total",
-        {"error_type": "ModelNotFoundError"},
-    ) == 1
-    assert sample(
-        registry,
-        "aegisroute_provider_calls_total",
-        {"provider": "mock", "selected_model": "mock-model-v1"},
-    ) == 1
-    assert sample(
-        registry,
-        "aegisroute_provider_failures_total",
-        {
-            "provider": "mock",
-            "selected_model": "mock-model-v1",
-            "error_type": "ProviderError",
-        },
-    ) == 1
-    assert sample(
-        registry,
-        "aegisroute_generation_latency_seconds_count",
-        {"provider": "mock", "selected_model": "mock-model-v1"},
-    ) == 2
-    assert sample(
-        registry,
-        "aegisroute_generation_latency_seconds_sum",
-        {"provider": "mock", "selected_model": "mock-model-v1"},
-    ) == 1.75
+    assert (
+        sample(
+            registry,
+            "aegisroute_generation_failed_total",
+            {"error_type": "ModelNotFoundError", "failure_stage": "routing"},
+        )
+        == 1
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_routing_failures_total",
+            {"error_type": "ModelNotFoundError"},
+        )
+        == 1
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_provider_calls_total",
+            {"provider": "mock", "selected_model": "mock-model-v1"},
+        )
+        == 1
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_provider_failures_total",
+            {
+                "provider": "mock",
+                "selected_model": "mock-model-v1",
+                "error_type": "ProviderError",
+            },
+        )
+        == 1
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_provider_retries_total",
+            {"provider": "mock", "error_type": "ProviderTimeoutError"},
+        )
+        == 1
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_generation_latency_seconds_count",
+            {"provider": "mock", "selected_model": "mock-model-v1"},
+        )
+        == 2
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_generation_latency_seconds_sum",
+            {"provider": "mock", "selected_model": "mock-model-v1"},
+        )
+        == 1.75
+    )
 
 
 def test_isolated_registries_allow_repeated_metrics_construction() -> None:
@@ -83,6 +112,7 @@ def test_metrics_api_accepts_only_bounded_operational_dimensions() -> None:
         "record_routing_failure",
         "record_provider_call",
         "record_provider_failure",
+        "record_provider_retry",
         "record_request_completed",
         "record_request_failed",
     )

@@ -45,6 +45,12 @@ class PrometheusApplicationMetrics:
             ("provider", "selected_model", "error_type"),
             registry=registry,
         )
+        self._provider_retries = Counter(
+            "aegisroute_provider_retries_total",
+            "Provider retries that were scheduled.",
+            ("provider", "error_type"),
+            registry=registry,
+        )
         self._routing_failures = Counter(
             "aegisroute_routing_failures_total",
             "Routing failures before provider invocation.",
@@ -74,6 +80,12 @@ class PrometheusApplicationMetrics:
         labels = {"provider": provider, "selected_model": selected_model}
         self._provider_failures.labels(error_type=error_type, **labels).inc()
         self._latency.labels(**labels).observe(latency_seconds)
+
+    def record_provider_retry(self, provider: str, error_type: str) -> None:
+        self._provider_retries.labels(
+            provider=provider,
+            error_type=error_type,
+        ).inc()
 
     def record_request_completed(
         self,

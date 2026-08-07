@@ -2,15 +2,16 @@
 
 from dataclasses import dataclass, field
 
-from sqlalchemy.engine import Engine
 from prometheus_client import CollectorRegistry
+from sqlalchemy.engine import Engine
 
 from app.analytics.service import RoutingAnalyticsService
-from app.config import ProviderTimeoutSettings
+from app.config import ProviderRetrySettings, ProviderTimeoutSettings
 from app.db.session import create_database_engine, create_session_factory
 from app.observability.metrics import ApplicationMetrics, NoopApplicationMetrics
 from app.observability.prometheus import PrometheusApplicationMetrics
 from app.providers.base import ProviderAdapter
+from app.providers.executor import ProviderExecutor, RetryPolicy
 from app.providers.mock import MockProviderAdapter
 from app.repositories.request_log import SQLAlchemyRequestLogRepository
 from app.repositories.sqlalchemy_routing_analytics import (
@@ -48,6 +49,7 @@ def build_application_container(
     *,
     model_registry: ModelRegistry | None = None,
     provider_timeout_settings: ProviderTimeoutSettings | None = None,
+    provider_retry_settings: ProviderRetrySettings | None = None,
 ) -> ApplicationContainer:
     """Assemble and validate the production dependency graph."""
 
@@ -85,11 +87,16 @@ def build_application_container(
         )
         metrics_registry = CollectorRegistry()
         metrics = PrometheusApplicationMetrics(metrics_registry)
+        retry_settings = (
+            provider_retry_settings or ProviderRetrySettings.from_environment()
+        )
+        provider_executor = ProviderExecutor(RetryPolicy(retry_settings))
         gateway_service = GatewayService(
             routing_policy=routing_policy,
             provider_registry=provider_registry,
             request_log_repository=request_log_repository,
             metrics=metrics,
+            provider_executor=provider_executor,
         )
         return ApplicationContainer(
             engine=engine,
