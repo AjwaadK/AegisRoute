@@ -20,8 +20,8 @@ testing.
 - ✅ Gateway
 - ✅ Persistence
 - ✅ Observability
-- 🚧 Provider Resilience
-- ⬜ Redis Caching
+- ✅ Provider Resilience
+- 🚧 Redis Caching
 - ⬜ Rate Limiting
 - ⬜ Async Workers
 - ⬜ Kubernetes
