@@ -12,7 +12,7 @@ from app.errors import (
     ProviderUnavailableError,
 )
 from app.providers.mock import MockProviderAdapter
-from app.schemas.generation import GenerateRequest
+from app.schemas.generation import GenerateRequest, ProviderResult
 
 PROVIDER_ERROR_TYPES = (
     ProviderTimeoutError,
@@ -84,3 +84,50 @@ def test_mock_provider_typed_failures_are_caught_as_provider_errors(
         asyncio.run(provider.generate(request, "request-123"))
 
     assert exc_info.value is failure
+
+
+def test_mock_provider_translates_timeout_and_preserves_metadata() -> None:
+    upstream_error = TimeoutError("provider SDK detail")
+    provider = MockProviderAdapter(failure=upstream_error)
+
+    with pytest.raises(ProviderTimeoutError) as exc_info:
+        asyncio.run(provider.generate(_request(), "request-123"))
+
+    assert exc_info.value.provider_name == "mock"
+    assert exc_info.value.provider_code == "timeout"
+    assert exc_info.value.message == "Provider 'mock' request timed out"
+    assert exc_info.value.__cause__ is upstream_error
+
+
+def test_mock_provider_honors_configured_timeout() -> None:
+    provider = MockProviderAdapter(
+        timeout_seconds=0.001,
+        response_delay_seconds=0.05,
+    )
+
+    with pytest.raises(ProviderTimeoutError):
+        asyncio.run(provider.generate(_request(), "request-123"))
+
+
+def test_mock_provider_success_path_is_unchanged() -> None:
+    result = asyncio.run(
+        MockProviderAdapter(timeout_seconds=1).generate(_request(), "request-123")
+    )
+
+    assert result == ProviderResult(
+        request_id="request-123",
+        provider="mock",
+        model="mock-model-v1",
+        output="mock_response:Hello router",
+        input_tokens=2,
+        output_tokens=2,
+    )
+
+
+def _request() -> GenerateRequest:
+    return GenerateRequest(
+        model="mock-model-v1",
+        messages=[{"role": "user", "content": "Hello router"}],
+        max_tokens=64,
+        temperature=0.5,
+    )

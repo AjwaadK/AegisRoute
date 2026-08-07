@@ -135,3 +135,18 @@
 - Validation: 140 tests passed and 14 PostgreSQL-dependent tests skipped;
   scoped Ruff and Black checks passed, and Compose structure remained valid.
   Runtime Compose startup was unavailable because Docker is not installed.
+
+## Provider Timeout Policy V1 — 2026-08-07
+
+- Added a positive, finite global provider deadline configured with
+  `PROVIDER_TIMEOUT_SECONDS`, plus a `MOCK_PROVIDER_TIMEOUT_SECONDS` override.
+- Added shared provider timeout enforcement that converts Python and asyncio
+  timeout exceptions to metadata-bearing `ProviderTimeoutError` instances.
+- Applied the policy to the mock adapter while preserving its existing success
+  and typed `ProviderError` behavior; composition injects environment settings.
+- Kept gateway persistence, logging, and metrics paths unchanged so timeouts use
+  the established provider-failure lifecycle without retries or fallback.
+- Validation: 44 focused provider, gateway, and metrics tests passed; the
+  environment-compatible suite passed 111 tests with one skip. Ruff, scoped
+  Black, and diff checks passed. Full HTTP test collection was blocked because
+  the environment lacks `httpx`/`httpx2` and network installation is disabled.

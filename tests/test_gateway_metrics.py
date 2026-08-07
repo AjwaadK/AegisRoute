@@ -3,9 +3,10 @@ from typing import Any
 
 import pytest
 
-from app.errors import ModelNotFoundError, ProviderError
+from app.errors import ModelNotFoundError, ProviderError, ProviderTimeoutError
 from app.observability.metrics import NoopApplicationMetrics
 from app.providers.base import ProviderAdapter
+from app.providers.mock import MockProviderAdapter
 from app.routing.model_registry import ModelDefinition, ModelRegistry
 from app.routing.policy import DeterministicRoutingPolicy
 from app.routing.provider_registry import ProviderRegistry
@@ -65,7 +66,9 @@ class SuccessfulProvider(ProviderAdapter):
     def __init__(self) -> None:
         self.called = False
 
-    async def generate(self, request: GenerateRequest, request_id: str) -> ProviderResult:
+    async def generate(
+        self, request: GenerateRequest, request_id: str
+    ) -> ProviderResult:
         self.called = True
         return ProviderResult(
             request_id=request_id,
@@ -80,7 +83,9 @@ class SuccessfulProvider(ProviderAdapter):
 class FailingProvider(ProviderAdapter):
     provider_name = "unstable"
 
-    async def generate(self, request: GenerateRequest, request_id: str) -> ProviderResult:
+    async def generate(
+        self, request: GenerateRequest, request_id: str
+    ) -> ProviderResult:
         raise ProviderError(self.provider_name, message="free-form upstream message")
 
 
@@ -91,7 +96,9 @@ def make_request(model: str = "model-v1") -> GenerateRequest:
     )
 
 
-def make_service(provider: ProviderAdapter, metrics: RecordingMetrics) -> GatewayService:
+def make_service(
+    provider: ProviderAdapter, metrics: RecordingMetrics
+) -> GatewayService:
     registry = ProviderRegistry([provider])
     models = ModelRegistry([ModelDefinition("model-v1", (provider.provider_name,))])
     return GatewayService(
@@ -163,6 +170,33 @@ def test_provider_failure_records_attempt_latency_and_one_failed_request() -> No
     assert metrics.events[2][4] >= 0
     assert metrics.events.count(("request_failed", "ProviderError", "provider")) == 1
     assert "free-form upstream message" not in repr(metrics.events)
+
+
+def test_provider_timeout_uses_existing_failure_metrics_path() -> None:
+    metrics = RecordingMetrics()
+    provider = MockProviderAdapter(failure=TimeoutError("SDK timeout"))
+
+    with pytest.raises(ProviderTimeoutError):
+        asyncio.run(
+            make_service(provider, metrics).generate(make_request(), "request-1")
+        )
+
+    assert [event[0] for event in metrics.events] == [
+        "request_started",
+        "provider_call",
+        "provider_failure",
+        "request_failed",
+    ]
+    assert metrics.events[2][1:4] == (
+        "mock",
+        "model-v1",
+        "ProviderTimeoutError",
+    )
+    assert metrics.events[3] == (
+        "request_failed",
+        "ProviderTimeoutError",
+        "provider",
+    )
 
 
 def test_metrics_failures_do_not_prevent_provider_or_successful_response() -> None:
