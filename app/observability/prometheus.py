@@ -51,6 +51,12 @@ class PrometheusApplicationMetrics:
             ("provider", "error_type"),
             registry=registry,
         )
+        self._provider_fallbacks = Counter(
+            "aegisroute_provider_fallbacks_total",
+            "Provider fallback transitions that were scheduled.",
+            ("from_provider", "to_provider", "reason"),
+            registry=registry,
+        )
         self._routing_failures = Counter(
             "aegisroute_routing_failures_total",
             "Routing failures before provider invocation.",
@@ -85,6 +91,15 @@ class PrometheusApplicationMetrics:
         self._provider_retries.labels(
             provider=provider,
             error_type=error_type,
+        ).inc()
+
+    def record_provider_fallback(
+        self, from_provider: str, to_provider: str, reason: str
+    ) -> None:
+        self._provider_fallbacks.labels(
+            from_provider=from_provider,
+            to_provider=to_provider,
+            reason=reason,
         ).inc()
 
     def record_request_completed(

@@ -187,3 +187,33 @@
 - Preserved existing ADR and build history. No runtime architecture,
   application behavior, tests, schema, migrations, or deployment configuration
   changed.
+
+## Fallback Routing V1 — 2026-08-08
+
+- Added a `RouteExecutor` boundary between `GatewayService` and
+  `ProviderExecutor`. Routing now supplies an ordered primary and fallback
+  candidate sequence while one-candidate deterministic behavior remains
+  backward-compatible.
+- Timeout, rate-limit, unavailable, and internal provider failures can trigger
+  fallback after retries for the selected provider are exhausted.
+  Authentication and invalid-request failures stop the route immediately.
+- `PROVIDER_MAX_ROUTE_ATTEMPTS` includes the primary candidate, defaults to
+  three, and prevents unbounded route chains. Provider/model identity ensures a
+  duplicate candidate executes at most once and cannot form a loop.
+- All provider retries and fallback candidates share the existing monotonic
+  gateway request deadline. A fallback is denied when the minimum useful
+  attempt budget no longer remains.
+- Added `aegisroute_provider_fallbacks_total` with bounded `from_provider`,
+  `to_provider`, and typed failure `reason` labels, plus structured transition
+  logs that exclude prompts and unrestricted provider messages.
+- One gateway request, response, persistence record, and logical completion or
+  failure lifecycle spans all retries and fallbacks. Provider calls and failures
+  remain attempt-level; a successful fallback records logical generation
+  success rather than failure.
+- Focused executor, retry, gateway, metrics, routing, configuration, and
+  composition coverage validates ordering, stop conditions, shared deadlines,
+  duplicate protection, metric semantics, and persistence behavior. Exact full
+  validation results are recorded in the implementation handoff.
+- This is gateway-parity functionality and an enabler for richer execution
+  planning later. Circuit breakers, real adapters, adaptive routing, and a
+  future `ExecutionPlan` remain deferred.

@@ -22,6 +22,10 @@ class ApplicationMetrics(Protocol):
 
     def record_provider_retry(self, provider: str, error_type: str) -> None: ...
 
+    def record_provider_fallback(
+        self, from_provider: str, to_provider: str, reason: str
+    ) -> None: ...
+
     def record_request_completed(
         self,
         provider: str,
@@ -54,6 +58,11 @@ class NoopApplicationMetrics:
         pass
 
     def record_provider_retry(self, provider: str, error_type: str) -> None:
+        pass
+
+    def record_provider_fallback(
+        self, from_provider: str, to_provider: str, reason: str
+    ) -> None:
         pass
 
     def record_request_completed(

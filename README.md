@@ -14,7 +14,7 @@ an adaptive inference control plane.
 
 Today, it provides the reliable gateway foundation: deterministic routing,
 provider abstraction, request lifecycle persistence, routing analytics,
-provider timeouts and bounded retries, Prometheus observability, and a
+provider timeouts, bounded retries and fallback routing, Prometheus observability, and a
 containerized local development stack. It is an actively developed AI
 infrastructure project; its only provider adapter is currently a deterministic
 mock for development and testing.
@@ -49,6 +49,8 @@ DeterministicRoutingPolicy
   ↓
 ModelRegistry / ProviderRegistry
   ↓
+RouteExecutor (ordered, bounded provider fallback)
+  ↓
 ProviderExecutor (deadline + bounded retries)
   ↓
 MockProviderAdapter
@@ -81,7 +83,8 @@ AegisRoute is in **Phase I: Reliable Gateway**.
 - ✅ Typed provider failures
 - ✅ Configurable provider timeout policy
 - ✅ Bounded retries for eligible provider failures
-- 🚧 Provider resilience (fallback routing and circuit breaking remain planned)
+- ✅ Bounded fallback routing for eligible provider failures
+- 🚧 Provider resilience (circuit breaking remains planned)
 - ⬜ Real provider adapters and streaming
 - ⬜ Token-based cost tracking
 - ⬜ API-key authentication, authorization, quotas, and rate limiting

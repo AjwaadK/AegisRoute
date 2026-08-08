@@ -9,6 +9,7 @@ from app.observability.metrics import ApplicationMetrics, NoopApplicationMetrics
 from app.providers.executor import ProviderExecutor
 from app.repositories.request_log import NoopRequestLogRepository, RequestLogRepository
 from app.routing.contracts import RoutingDecision, RoutingRequest
+from app.routing.executor import RouteExecutor
 from app.routing.policy import RoutingPolicy
 from app.routing.provider_registry import ProviderRegistry
 from app.schemas.generation import GenerateRequest, GenerateResponse
@@ -24,6 +25,7 @@ class GatewayService:
         request_log_repository: RequestLogRepository | None = None,
         metrics: ApplicationMetrics | None = None,
         provider_executor: ProviderExecutor | None = None,
+        route_executor: RouteExecutor | None = None,
     ) -> None:
         self.routing_policy = routing_policy
         self.provider_registry = provider_registry
@@ -32,6 +34,11 @@ class GatewayService:
         )
         self.metrics = metrics or NoopApplicationMetrics()
         self.provider_executor = provider_executor or ProviderExecutor()
+        self.route_executor = route_executor or (
+            RouteExecutor(provider_registry, self.provider_executor)
+            if provider_registry is not None
+            else None
+        )
 
     async def generate(
         self, request: GenerateRequest, request_id: str
@@ -40,7 +47,11 @@ class GatewayService:
         self._record_metric(
             "record_request_started", self.metrics.record_request_started
         )
-        if self.routing_policy is None or self.provider_registry is None:
+        if (
+            self.routing_policy is None
+            or self.provider_registry is None
+            or self.route_executor is None
+        ):
             self._record_metric(
                 "record_request_failed",
                 lambda: self.metrics.record_request_failed("RuntimeError", "internal"),
@@ -134,7 +145,8 @@ class GatewayService:
         )
 
         try:
-            provider_adapter = self.provider_registry.get(decision.provider_name)
+            for candidate in decision.candidates:
+                self.provider_registry.get(candidate.provider_name)
         except ProviderNotFoundError as exc:
             error_type = type(exc).__name__
             self._record_metric(
@@ -174,23 +186,20 @@ class GatewayService:
             )
             raise
 
-        provider_name = decision.provider_name
-        selected_request = request.model_copy(update={"model": decision.selected_model})
         log_event(
             "generation_started",
             request_id=request_id,
-            provider=provider_name,
+            provider=decision.provider_name,
             model=decision.selected_model,
             status="started",
             lifecycle_stage="provider_invocation",
         )
         start = perf_counter()
         try:
-            provider_result = await self.provider_executor.execute(
-                provider_adapter,
-                selected_request,
+            provider_result = await self.route_executor.execute(
+                decision,
+                request,
                 request_id,
-                decision.selected_model,
                 self.metrics,
                 elapsed_request_seconds=perf_counter() - metrics_lifecycle_start,
             )
@@ -213,7 +222,7 @@ class GatewayService:
             log_event(
                 "generation_failed",
                 request_id=request_id,
-                provider=provider_name,
+                provider=exc.provider_name,
                 model=decision.selected_model,
                 status="failed",
                 error_type="ProviderError",
@@ -251,8 +260,8 @@ class GatewayService:
         self._record_metric(
             "record_request_completed",
             lambda: self.metrics.record_request_completed(
-                provider_name,
-                decision.selected_model,
+                provider_result.provider,
+                provider_result.model,
                 perf_counter() - metrics_lifecycle_start,
             ),
         )
@@ -313,7 +322,7 @@ class GatewayService:
     ) -> None:
         try:
             await action
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- persistence is fail-open
             # Persistence is non-blocking in v1. Record the failure without
             # changing the generation result.
             log_event(
@@ -332,7 +341,7 @@ class GatewayService:
     ) -> None:
         try:
             await action
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- persistence is fail-open
             # Persistence is non-blocking in v1. Record the failure without
             # changing the generation result.
             log_event(
@@ -345,7 +354,7 @@ class GatewayService:
     def _record_metric(self, operation: str, action: Callable[[], None]) -> None:
         try:
             action()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- metrics are fail-open
             log_event(
                 "metrics_recording_failed",
                 operation=operation,

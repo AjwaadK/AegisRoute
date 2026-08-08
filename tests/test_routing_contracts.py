@@ -2,7 +2,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from app.routing.contracts import RoutingDecision, RoutingRequest
+from app.routing.contracts import RouteCandidate, RoutingDecision, RoutingRequest
 
 
 def make_decision(**overrides: str) -> RoutingDecision:
@@ -35,6 +35,26 @@ def test_valid_routing_decision() -> None:
     assert decision.selected_model == "provider-model-v1"
     assert decision.provider_name == "mock"
     assert decision.reason == "model is available from the selected provider"
+    assert decision.candidates == (RouteCandidate("mock", "provider-model-v1"),)
+
+
+def test_routing_decision_preserves_ordered_candidates() -> None:
+    decision = RoutingDecision(
+        requested_model="public-model",
+        selected_model="provider-model-v1",
+        provider_name="primary",
+        reason="ordered",
+        fallback_candidates=(
+            RouteCandidate("second", "provider-model-v2"),
+            RouteCandidate("third", "provider-model-v3"),
+        ),
+    )
+
+    assert [candidate.provider_name for candidate in decision.candidates] == [
+        "primary",
+        "second",
+        "third",
+    ]
 
 
 @pytest.mark.parametrize(

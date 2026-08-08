@@ -29,6 +29,7 @@ def test_prometheus_metrics_record_generation_lifecycle() -> None:
         1.25,
     )
     metrics.record_provider_retry("mock", "ProviderTimeoutError")
+    metrics.record_provider_fallback("mock", "backup", "ProviderTimeoutError")
 
     assert sample(registry, "aegisroute_generation_requests_total") == 1
     assert sample(registry, "aegisroute_generation_completed_total") == 1
@@ -37,6 +38,18 @@ def test_prometheus_metrics_record_generation_lifecycle() -> None:
             registry,
             "aegisroute_generation_failed_total",
             {"error_type": "ModelNotFoundError", "failure_stage": "routing"},
+        )
+        == 1
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_provider_fallbacks_total",
+            {
+                "from_provider": "mock",
+                "to_provider": "backup",
+                "reason": "ProviderTimeoutError",
+            },
         )
         == 1
     )
@@ -113,6 +126,7 @@ def test_metrics_api_accepts_only_bounded_operational_dimensions() -> None:
         "record_provider_call",
         "record_provider_failure",
         "record_provider_retry",
+        "record_provider_fallback",
         "record_request_completed",
         "record_request_failed",
     )

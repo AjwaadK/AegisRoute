@@ -22,6 +22,24 @@ class RoutingRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class RouteCandidate:
+    """One bounded provider/model choice in routing preference order."""
+
+    provider_name: str
+    selected_model: str
+
+    def __post_init__(self) -> None:
+        _validate_non_empty(self.provider_name, "provider_name")
+        _validate_non_empty(self.selected_model, "selected_model")
+        if self.provider_name != self.provider_name.lower():
+            raise ValueError("provider_name must be lowercase")
+
+    @property
+    def identity(self) -> tuple[str, str]:
+        return (self.provider_name, self.selected_model)
+
+
+@dataclass(frozen=True, slots=True)
 class RoutingDecision:
     """A provider-agnostic record of a completed routing choice."""
 
@@ -29,6 +47,7 @@ class RoutingDecision:
     selected_model: str
     provider_name: str
     reason: str
+    fallback_candidates: tuple[RouteCandidate, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_non_empty(self.requested_model, "requested_model")
@@ -37,10 +56,21 @@ class RoutingDecision:
         _validate_non_empty(self.reason, "reason")
         if self.provider_name != self.provider_name.lower():
             raise ValueError("provider_name must be lowercase")
+        if not isinstance(self.fallback_candidates, tuple):
+            raise TypeError("fallback_candidates must be a tuple")
+
+    @property
+    def candidates(self) -> tuple[RouteCandidate, ...]:
+        """Return the primary route followed by ordered fallback candidates."""
+
+        return (
+            RouteCandidate(self.provider_name, self.selected_model),
+            *self.fallback_candidates,
+        )
 
 
 class RoutingPolicy(Protocol):
-    """Select a provider and concrete model for a routing request."""
+    """Select an ordered provider/model route for a routing request."""
 
     def route(self, request: RoutingRequest) -> RoutingDecision:
-        """Return the routing decision for the request."""
+        """Return a primary decision with optional ordered fallbacks."""

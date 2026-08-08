@@ -2,7 +2,7 @@ import pytest
 
 from app.providers.base import ProviderAdapter
 from app.providers.mock import MockProviderAdapter
-from app.routing.contracts import RoutingDecision, RoutingRequest
+from app.routing.contracts import RouteCandidate, RoutingDecision, RoutingRequest
 from app.routing.errors import ModelNotFoundError, ProviderNotFoundError
 from app.routing.model_registry import ModelDefinition, ModelRegistry
 from app.routing.policy import DeterministicRoutingPolicy, RoutingPolicy
@@ -41,7 +41,24 @@ def test_first_configured_provider_is_selected() -> None:
         providers=("other", "mock"),
         registered_providers=(MockProviderAdapter(), OtherProvider()),
     )
-    assert policy.route(RoutingRequest(requested_model="public-model")).provider_name == "other"
+    decision = policy.route(RoutingRequest(requested_model="public-model"))
+    assert decision.provider_name == "other"
+    assert decision.fallback_candidates == (RouteCandidate("mock", "public-model"),)
+
+
+def test_all_ordered_candidates_are_registry_validated() -> None:
+    class OtherProvider(MockProviderAdapter):
+        provider_name = "other"
+
+    policy = make_policy(
+        providers=("other", "missing"),
+        registered_providers=(MockProviderAdapter(), OtherProvider()),
+    )
+
+    with pytest.raises(ProviderNotFoundError) as exc_info:
+        policy.route(RoutingRequest(requested_model="public-model"))
+
+    assert exc_info.value.provider_name == "missing"
 
 
 def test_unknown_model_raises_model_not_found() -> None:
@@ -67,4 +84,7 @@ def test_route_returns_routing_decision() -> None:
 
 def test_deterministic_policy_satisfies_routing_policy_contract() -> None:
     policy: RoutingPolicy = make_policy()
-    assert policy.route(RoutingRequest(requested_model="public-model")).provider_name == "mock"
+    assert (
+        policy.route(RoutingRequest(requested_model="public-model")).provider_name
+        == "mock"
+    )
