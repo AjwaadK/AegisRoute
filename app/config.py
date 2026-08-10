@@ -136,6 +136,31 @@ class ProviderRetrySettings:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderRouteSettings:
+    """Bounded cross-provider route execution settings."""
+
+    max_route_attempts: int = 3
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.max_route_attempts, int)
+            or isinstance(self.max_route_attempts, bool)
+            or self.max_route_attempts < 1
+        ):
+            raise ValueError("max_route_attempts must be at least 1")
+
+    @classmethod
+    def from_environment(cls) -> "ProviderRouteSettings":
+        load_project_environment()
+        return cls(
+            max_route_attempts=_positive_integer(
+                "PROVIDER_MAX_ROUTE_ATTEMPTS",
+                os.environ.get("PROVIDER_MAX_ROUTE_ATTEMPTS", "3"),
+            )
+        )
+
+
 def _optional_positive_seconds(name: str, value: str | None) -> float | None:
     return None if value is None else _positive_seconds(name, value)
 

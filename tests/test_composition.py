@@ -5,7 +5,11 @@ from sqlalchemy import create_engine
 
 from app.api.routes import get_gateway_service
 from app.composition import ApplicationContainer, build_application_container
-from app.config import ProviderRetrySettings, ProviderTimeoutSettings
+from app.config import (
+    ProviderRetrySettings,
+    ProviderRouteSettings,
+    ProviderTimeoutSettings,
+)
 from app.main import create_app
 from app.models.model_registry import ModelDefinition, ModelRegistry
 from app.observability.prometheus import PrometheusApplicationMetrics
@@ -147,6 +151,45 @@ def test_composition_wires_provider_retry_settings(
         assert container.gateway_service.provider_executor.policy.settings is settings
     finally:
         container.dispose()
+
+
+def test_composition_wires_provider_route_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    settings = ProviderRouteSettings(max_route_attempts=2)
+
+    container = build_application_container(provider_route_settings=settings)
+    try:
+        assert container.gateway_service.route_executor.settings is settings
+    finally:
+        container.dispose()
+
+
+def test_provider_route_settings_default_and_environment_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PROVIDER_MAX_ROUTE_ATTEMPTS", raising=False)
+    assert ProviderRouteSettings.from_environment().max_route_attempts == 3
+
+    monkeypatch.setenv("PROVIDER_MAX_ROUTE_ATTEMPTS", "2")
+    assert ProviderRouteSettings.from_environment().max_route_attempts == 2
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "invalid"])
+def test_provider_route_settings_reject_invalid_environment(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("PROVIDER_MAX_ROUTE_ATTEMPTS", value)
+
+    with pytest.raises(ValueError, match="PROVIDER_MAX_ROUTE_ATTEMPTS"):
+        ProviderRouteSettings.from_environment()
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_provider_route_settings_reject_invalid_values(value: object) -> None:
+    with pytest.raises(ValueError, match="max_route_attempts"):
+        ProviderRouteSettings(max_route_attempts=value)  # type: ignore[arg-type]
 
 
 def test_provider_timeout_settings_load_environment(

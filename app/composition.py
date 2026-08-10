@@ -21,6 +21,7 @@ from app.repositories.request_log import SQLAlchemyRequestLogRepository
 from app.repositories.sqlalchemy_routing_analytics import (
     SQLAlchemyRoutingAnalyticsRepository,
 )
+from app.routing.executor import RouteExecutor
 from app.routing.model_registry import ModelDefinition, ModelRegistry
 from app.routing.policy import DeterministicRoutingPolicy, RoutingPolicy
 from app.routing.provider_registry import ProviderRegistry
@@ -115,12 +116,21 @@ def build_application_container(
             provider_retry_settings or ProviderRetrySettings.from_environment()
         )
         provider_executor = ProviderExecutor(RetryPolicy(retry_settings))
+        route_settings = (
+            provider_route_settings or ProviderRouteSettings.from_environment()
+        )
+        route_executor = RouteExecutor(
+            provider_registry,
+            provider_executor,
+            route_settings,
+        )
         gateway_service = GatewayService(
             routing_policy=routing_policy,
             provider_registry=provider_registry,
             request_log_repository=request_log_repository,
             metrics=metrics,
             provider_executor=provider_executor,
+            route_executor=route_executor,
         )
         return ApplicationContainer(
             engine=engine,
