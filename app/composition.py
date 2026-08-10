@@ -1,15 +1,19 @@
 """Application composition for process-scoped runtime dependencies."""
 
-from dataclasses import dataclass, field
 from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from openai import AsyncOpenAI
-
 from prometheus_client import CollectorRegistry
 from sqlalchemy.engine import Engine
 
 from app.analytics.service import RoutingAnalyticsService
-from app.config import OpenAISettings, ProviderRetrySettings, ProviderTimeoutSettings
+from app.config import (
+    OpenAISettings,
+    ProviderRetrySettings,
+    ProviderRouteSettings,
+    ProviderTimeoutSettings,
+)
 from app.db.session import create_database_engine, create_session_factory
 from app.observability.metrics import ApplicationMetrics, NoopApplicationMetrics
 from app.observability.prometheus import PrometheusApplicationMetrics
@@ -55,6 +59,7 @@ def build_application_container(
     model_registry: ModelRegistry | None = None,
     provider_timeout_settings: ProviderTimeoutSettings | None = None,
     provider_retry_settings: ProviderRetrySettings | None = None,
+    provider_route_settings: ProviderRouteSettings | None = None,
     openai_settings: OpenAISettings | None = None,
     openai_client_factory: Callable[..., AsyncOpenAIClient] = AsyncOpenAI,
 ) -> ApplicationContainer:
@@ -91,8 +96,13 @@ def build_application_container(
             configured_providers = [provider]
         provider_registry = ProviderRegistry(configured_providers)
         if model_registry is None:
+            default_provider_name = (
+                "mock" if provider is None else configured_providers[0].provider_name
+            )
             model_definitions = {
-                "mock-model-v1": ModelDefinition("mock-model-v1", ("mock",))
+                "mock-model-v1": ModelDefinition(
+                    "mock-model-v1", (default_provider_name,)
+                )
             }
             if (
                 provider is None

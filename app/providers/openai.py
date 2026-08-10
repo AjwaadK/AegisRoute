@@ -108,6 +108,13 @@ class OpenAIProviderAdapter(ProviderAdapter):
         code = getattr(error, "code", None)
         if isinstance(code, str) and code:
             return code[:128]
+        body = getattr(error, "body", None)
+        if isinstance(body, dict):
+            error_details = body.get("error")
+            if isinstance(error_details, dict):
+                code = error_details.get("code")
+                if isinstance(code, str) and code:
+                    return code[:128]
         status_code = getattr(error, "status_code", None)
         return str(status_code) if isinstance(status_code, int) else None
 
