@@ -2,7 +2,7 @@
 
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,6 +14,26 @@ def load_project_environment() -> None:
     """Load .env defaults without replacing explicitly supplied configuration."""
 
     load_dotenv(PROJECT_ROOT / ".env", override=False)
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAISettings:
+    """Optional OpenAI credentials, hidden from representations and logs."""
+
+    api_key: str | None = field(default=None, repr=False)
+    model: str | None = None
+
+    @classmethod
+    def from_environment(cls) -> "OpenAISettings":
+        """Load an optional key; explicit process environment remains authoritative."""
+
+        load_project_environment()
+        value = os.environ.get("OPENAI_API_KEY")
+        model = os.environ.get("OPENAI_MODEL")
+        return cls(
+            api_key=value.strip() if value and value.strip() else None,
+            model=model.strip() if model and model.strip() else None,
+        )
 
 
 @dataclass(frozen=True, slots=True)

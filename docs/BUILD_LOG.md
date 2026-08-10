@@ -171,3 +171,36 @@
   recorded in the implementation handoff.
 - Next step: add fallback routing as a separate policy above provider adapters;
   circuit breakers and `Retry-After` support remain deferred.
+
+## Public documentation and long-term architecture refresh — 2026-08-07
+
+- Updated the public README to reflect the implemented Phase I gateway,
+  mock-only provider limitation, security posture, local workflow, and verified
+  provider timeout and bounded-retry behavior.
+- Documented the long-term adaptive inference-control-plane direction and
+  clearly separated it from current capabilities.
+- Reorganized the roadmap into five directional phases from Reliable Gateway
+  through Adaptive Inference Control Plane, with a product-investment
+  classification framework.
+- Clarified the potential future relationship between AegisRoute and Aegis
+  Evaluations as a source of quality and outcome signals.
+- Preserved existing ADR and build history. No runtime architecture,
+  application behavior, tests, schema, migrations, or deployment configuration
+  changed.
+
+## OpenAI Provider Adapter V1 — 2026-08-10
+
+- Added the first real-provider adapter using the official OpenAI Python SDK,
+  `AsyncOpenAI`, and the Responses API.
+- Disabled SDK retries with `max_retries=0`; the adapter performs one API
+  request per invocation while AegisRoute retains timeout, retry, routing, and
+  lifecycle ownership.
+- Added typed OpenAI exception translation with safe provider codes, bounded
+  messages, and Python exception chaining. Model selection remains owned by the
+  model registry.
+- Made `OPENAI_API_KEY` optional and secret-safe. Default composition remains
+  mock-only when no key is configured.
+- Covered request/response translation, token usage, exception safety,
+  cancellation, and composition with injected clients and zero live API calls.
+- Streaming, tools, structured and multimodal output, pricing, and live API
+  validation remain deferred. No persistence schema or migration changed.
