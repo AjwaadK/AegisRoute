@@ -14,10 +14,11 @@ an adaptive inference control plane.
 
 Today, it provides the reliable gateway foundation: deterministic routing,
 provider abstraction, request lifecycle persistence, routing analytics,
-provider timeouts, bounded retries and fallback routing, Prometheus observability, and a
+provider timeouts and bounded retries, Prometheus observability, and a
 containerized local development stack. It is an actively developed AI
-infrastructure project; its only provider adapter is currently a deterministic
-mock for development and testing.
+infrastructure project. Its OpenAI Responses API adapter is covered by mocked
+SDK integration tests; live API validation remains opt-in and has not been
+performed as part of the default suite.
 
 Long term, AegisRoute is intended to learn from application-specific workload
 telemetry and evaluation outcomes to improve how requests execute across
@@ -29,8 +30,9 @@ capability of the current system.
 Clients submit generation requests through one FastAPI endpoint. A replaceable
 routing policy resolves a model and provider, the gateway executes the request,
 and PostgreSQL and Prometheus capture bounded lifecycle evidence for analysis
-and operations. The current Phase I implementation deliberately uses only a
-mock provider while it establishes reliable boundaries; future phases explore
+and operations. The default Phase I configuration deliberately uses the mock
+provider; OpenAI registration is optional and requires explicit credentials and
+model registry configuration. Future phases explore
 application-specific, evidence-driven routing without presenting that work as
 implemented.
 
@@ -49,11 +51,9 @@ DeterministicRoutingPolicy
   ↓
 ModelRegistry / ProviderRegistry
   ↓
-RouteExecutor (ordered, bounded provider fallback)
-  ↓
 ProviderExecutor (deadline + bounded retries)
   ↓
-MockProviderAdapter
+MockProviderAdapter / optional OpenAIProviderAdapter
 ```
 
 Current side systems:
@@ -83,9 +83,9 @@ AegisRoute is in **Phase I: Reliable Gateway**.
 - ✅ Typed provider failures
 - ✅ Configurable provider timeout policy
 - ✅ Bounded retries for eligible provider failures
-- ✅ Bounded fallback routing for eligible provider failures
-- 🚧 Provider resilience (circuit breaking remains planned)
-- ⬜ Real provider adapters and streaming
+- 🚧 Provider resilience (fallback routing and circuit breaking remain planned)
+- ✅ OpenAI Responses API provider adapter (mocked SDK validation)
+- ⬜ Additional provider adapters and streaming
 - ⬜ Token-based cost tracking
 - ⬜ API-key authentication, authorization, quotas, and rate limiting
 - ⬜ Redis caching and asynchronous workers

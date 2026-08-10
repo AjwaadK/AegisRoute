@@ -36,8 +36,10 @@ provenance, and safeguards before evaluation signals influence routing.
 
 The AI inference gateway and routing platform. Its current Phase I foundation
 includes deterministic routing, mock-provider execution, PostgreSQL lifecycle
-history and analytics, provider timeout/retry behavior, and Prometheus/Grafana
-observability. Real providers and adaptive routing are not yet implemented.
+history and analytics, provider timeout/retry behavior, an optional OpenAI
+Responses API adapter validated with SDK fakes, and Prometheus/Grafana
+observability. Live provider validation and adaptive routing are not yet
+implemented.
 
 ### Aegis Evaluations — future enabler
 

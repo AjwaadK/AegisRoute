@@ -214,3 +214,97 @@ def test_provider_timeout_settings_reject_invalid_environment(
 
     with pytest.raises(ValueError, match="PROVIDER_TIMEOUT_SECONDS"):
         ProviderTimeoutSettings.from_environment()
+
+
+def test_mock_only_composition_does_not_require_openai_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    container = build_application_container()
+    try:
+        assert container.provider_registry is not None
+        assert container.provider_registry.names() == ("mock",)
+    finally:
+        container.dispose()
+
+
+def test_composition_registers_openai_with_sdk_retries_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import OpenAISettings
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        responses = object()
+
+    def client_factory(**kwargs):
+        captured.update(kwargs)
+        return FakeClient()
+
+    container = build_application_container(
+        openai_settings=OpenAISettings(api_key="test-secret", model="gpt-test"),
+        openai_client_factory=client_factory,
+    )
+    try:
+        assert container.provider_registry is not None
+        assert container.provider_registry.names() == ("mock", "openai")
+        assert "gpt-test" in container.model_registry.names()
+        assert captured == {
+            "api_key": "test-secret",
+            "max_retries": 0,
+            "timeout": 30.0,
+        }
+        assert "test-secret" not in repr(OpenAISettings(api_key="test-secret"))
+    finally:
+        container.dispose()
+
+
+def test_openai_environment_setting_is_optional_and_explicit_env_wins(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from app import config
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("OPENAI_API_KEY=from-dotenv\n")
+    monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "from-environment")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-test")
+
+    settings = config.OpenAISettings.from_environment()
+
+    assert settings.api_key == "from-environment"
+    assert settings.model == "gpt-test"
+    assert "from-environment" not in repr(settings)
+
+
+def test_model_registry_selects_openai_model_without_adapter_alias_logic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import OpenAISettings
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+
+    class FakeClient:
+        responses = object()
+
+    models = ModelRegistry(
+        {"provider-model-id": ModelDefinition("provider-model-id", ("openai",))}
+    )
+    container = build_application_container(
+        model_registry=models,
+        openai_settings=OpenAISettings(api_key="test-secret"),
+        openai_client_factory=lambda **_kwargs: FakeClient(),
+    )
+    try:
+        assert container.routing_policy is not None
+        decision = container.routing_policy.route(
+            RoutingRequest(requested_model="provider-model-id")
+        )
+        assert decision.selected_model == "provider-model-id"
+        assert decision.provider_name == "openai"
+    finally:
+        container.dispose()

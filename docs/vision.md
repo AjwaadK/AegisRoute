@@ -5,8 +5,10 @@
 AegisRoute is currently in **Phase I: Reliable Gateway**. It provides a FastAPI
 generation boundary, deterministic model and provider routing, a mock provider,
 PostgreSQL lifecycle persistence and routing analytics, typed provider errors,
-timeouts, bounded retries, and Prometheus/Grafana observability. It does not yet
-connect to a real model provider, and it is not production hardened.
+timeouts, bounded retries, an optional OpenAI Responses API adapter, and
+Prometheus/Grafana observability. The OpenAI integration is tested against
+injected SDK fakes rather than live traffic, and the project is not production
+hardened.
 
 This foundation is useful in its own right, but core gateway parity is necessary
 infrastructure rather than the intended long-term differentiation.

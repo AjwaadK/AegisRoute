@@ -33,7 +33,8 @@ adaptive intelligence.
 - [x] Provider and model registries with deterministic routing
 - [x] Typed provider failures and configurable timeouts
 - [x] Bounded retries above single-attempt provider adapters
-- [ ] Real provider adapters
+- [x] OpenAI Responses API adapter (mocked SDK validation; optional configuration)
+- [ ] Additional real provider adapters
 - [ ] Streaming responses
 - [ ] Fallback routing and circuit breaking
 - [ ] Token accounting and cost estimation

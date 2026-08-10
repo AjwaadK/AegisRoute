@@ -188,32 +188,19 @@
   application behavior, tests, schema, migrations, or deployment configuration
   changed.
 
-## Fallback Routing V1 — 2026-08-08
+## OpenAI Provider Adapter V1 — 2026-08-10
 
-- Added a `RouteExecutor` boundary between `GatewayService` and
-  `ProviderExecutor`. Routing now supplies an ordered primary and fallback
-  candidate sequence while one-candidate deterministic behavior remains
-  backward-compatible.
-- Timeout, rate-limit, unavailable, and internal provider failures can trigger
-  fallback after retries for the selected provider are exhausted.
-  Authentication and invalid-request failures stop the route immediately.
-- `PROVIDER_MAX_ROUTE_ATTEMPTS` includes the primary candidate, defaults to
-  three, and prevents unbounded route chains. Provider/model identity ensures a
-  duplicate candidate executes at most once and cannot form a loop.
-- All provider retries and fallback candidates share the existing monotonic
-  gateway request deadline. A fallback is denied when the minimum useful
-  attempt budget no longer remains.
-- Added `aegisroute_provider_fallbacks_total` with bounded `from_provider`,
-  `to_provider`, and typed failure `reason` labels, plus structured transition
-  logs that exclude prompts and unrestricted provider messages.
-- One gateway request, response, persistence record, and logical completion or
-  failure lifecycle spans all retries and fallbacks. Provider calls and failures
-  remain attempt-level; a successful fallback records logical generation
-  success rather than failure.
-- Focused executor, retry, gateway, metrics, routing, configuration, and
-  composition coverage validates ordering, stop conditions, shared deadlines,
-  duplicate protection, metric semantics, and persistence behavior. Exact full
-  validation results are recorded in the implementation handoff.
-- This is gateway-parity functionality and an enabler for richer execution
-  planning later. Circuit breakers, real adapters, adaptive routing, and a
-  future `ExecutionPlan` remain deferred.
+- Added the first real-provider adapter using the official OpenAI Python SDK,
+  `AsyncOpenAI`, and the Responses API.
+- Disabled SDK retries with `max_retries=0`; the adapter performs one API
+  request per invocation while AegisRoute retains timeout, retry, routing, and
+  lifecycle ownership.
+- Added typed OpenAI exception translation with safe provider codes, bounded
+  messages, and Python exception chaining. Model selection remains owned by the
+  model registry.
+- Made `OPENAI_API_KEY` optional and secret-safe. Default composition remains
+  mock-only when no key is configured.
+- Covered request/response translation, token usage, exception safety,
+  cancellation, and composition with injected clients and zero live API calls.
+- Streaming, tools, structured and multimodal output, pricing, and live API
+  validation remain deferred. No persistence schema or migration changed.
