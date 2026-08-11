@@ -1,4 +1,4 @@
-# ADR 0009: Route executor fallback boundary
+# ADR 0010: Route executor fallback boundary
 
 ## Context
 
