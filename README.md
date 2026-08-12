@@ -86,11 +86,14 @@ AegisRoute is in **Phase I: Reliable Gateway**.
 - 🚧 Provider resilience (fallback routing and circuit breaking remain planned)
 - ✅ OpenAI Responses API provider adapter (mocked SDK validation)
 - ⬜ Additional provider adapters and streaming
-- ⬜ Token-based cost tracking
+- ✅ Provider-observed token usage and configured estimated cost accounting
 - ⬜ API-key authentication, authorization, quotas, and rate limiting
 - ⬜ Redis caching and asynchronous workers
 - ⬜ Local model serving
 - ⬜ Kubernetes and production deployment hardening
+
+AegisRoute records provider-observed token usage and derives estimated USD cost
+from configured pricing; provider billing remains authoritative.
 
 ## Why AegisRoute
 

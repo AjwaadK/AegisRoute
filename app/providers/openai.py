@@ -15,7 +15,7 @@ from app.errors import (
     ProviderUnavailableError,
 )
 from app.providers.base import ProviderAdapter
-from app.schemas.generation import GenerateRequest, ProviderResult
+from app.schemas.generation import GenerateRequest, ProviderResult, TokenUsage
 
 
 class ResponsesResource(Protocol):
@@ -78,15 +78,20 @@ class OpenAIProviderAdapter(ProviderAdapter):
             raise self._translated_error(error_type, exc) from exc
 
         usage = getattr(response, "usage", None)
-        input_tokens = getattr(usage, "input_tokens", 0) if usage is not None else 0
-        output_tokens = getattr(usage, "output_tokens", 0) if usage is not None else 0
         return ProviderResult(
             request_id=request_id,
             provider=self.provider_name,
             model=request.model,
             output=response.output_text,
-            input_tokens=input_tokens or 0,
-            output_tokens=output_tokens or 0,
+            usage=(
+                TokenUsage(
+                    input_tokens=getattr(usage, "input_tokens", None),
+                    output_tokens=getattr(usage, "output_tokens", None),
+                    total_tokens=getattr(usage, "total_tokens", None),
+                )
+                if usage is not None
+                else None
+            ),
         )
 
     @classmethod

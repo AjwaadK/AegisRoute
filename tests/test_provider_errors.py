@@ -121,6 +121,7 @@ def test_mock_provider_success_path_is_unchanged() -> None:
         output="mock_response:Hello router",
         input_tokens=2,
         output_tokens=2,
+        total_tokens=4,
     )
 
 

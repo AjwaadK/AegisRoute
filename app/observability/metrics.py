@@ -1,5 +1,6 @@
 """Application-owned contract for live operational metrics."""
 
+from decimal import Decimal
 from typing import Protocol
 
 
@@ -34,6 +35,18 @@ class ApplicationMetrics(Protocol):
     ) -> None: ...
 
     def record_request_failed(self, error_type: str, failure_stage: str) -> None: ...
+
+    def record_tokens(
+        self,
+        provider: str,
+        model: str,
+        input_tokens: int | None,
+        output_tokens: int | None,
+    ) -> None: ...
+
+    def record_estimated_cost(
+        self, provider: str, model: str, estimated_cost_usd: Decimal
+    ) -> None: ...
 
 
 class NoopApplicationMetrics:
@@ -74,4 +87,18 @@ class NoopApplicationMetrics:
         pass
 
     def record_request_failed(self, error_type: str, failure_stage: str) -> None:
+        pass
+
+    def record_tokens(
+        self,
+        provider: str,
+        model: str,
+        input_tokens: int | None,
+        output_tokens: int | None,
+    ) -> None:
+        pass
+
+    def record_estimated_cost(
+        self, provider: str, model: str, estimated_cost_usd: Decimal
+    ) -> None:
         pass

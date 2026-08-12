@@ -1,8 +1,10 @@
 from collections.abc import Awaitable, Callable
+from decimal import Decimal
 from hashlib import sha256
 from time import perf_counter
 from typing import Any
 
+from app.accounting import AccountingError, CostEstimator
 from app.core.logging import log_event
 from app.errors import ModelNotFoundError, ProviderError, ProviderNotFoundError
 from app.observability.metrics import ApplicationMetrics, NoopApplicationMetrics
@@ -12,7 +14,7 @@ from app.routing.contracts import RoutingDecision, RoutingRequest
 from app.routing.executor import RouteExecutor
 from app.routing.policy import RoutingPolicy
 from app.routing.provider_registry import ProviderRegistry
-from app.schemas.generation import GenerateRequest, GenerateResponse
+from app.schemas.generation import GenerateRequest, GenerateResponse, ProviderResult
 
 
 class GatewayService:
@@ -26,6 +28,7 @@ class GatewayService:
         metrics: ApplicationMetrics | None = None,
         provider_executor: ProviderExecutor | None = None,
         route_executor: RouteExecutor | None = None,
+        cost_estimator: CostEstimator | None = None,
     ) -> None:
         self.routing_policy = routing_policy
         self.provider_registry = provider_registry
@@ -39,6 +42,7 @@ class GatewayService:
             if provider_registry is not None
             else None
         )
+        self.cost_estimator = cost_estimator or CostEstimator()
 
     async def generate(
         self, request: GenerateRequest, request_id: str
@@ -238,6 +242,7 @@ class GatewayService:
             )
             raise
         latency_ms = int((perf_counter() - start) * 1000)
+        estimated_cost_usd = self._estimate_cost(provider_result)
         await self._persist_request_log_update(
             request_id=request_id,
             operation="mark_completed",
@@ -246,6 +251,8 @@ class GatewayService:
                 latency_ms=latency_ms,
                 input_tokens=provider_result.input_tokens,
                 output_tokens=provider_result.output_tokens,
+                total_tokens=provider_result.total_tokens,
+                estimated_cost_usd=estimated_cost_usd,
             ),
         )
         log_event(
@@ -257,6 +264,24 @@ class GatewayService:
             latency_ms=latency_ms,
             lifecycle_stage="completed",
         )
+        self._record_metric(
+            "record_tokens",
+            lambda: self.metrics.record_tokens(
+                provider_result.provider,
+                provider_result.model,
+                provider_result.input_tokens,
+                provider_result.output_tokens,
+            ),
+        )
+        if estimated_cost_usd is not None:
+            self._record_metric(
+                "record_estimated_cost",
+                lambda: self.metrics.record_estimated_cost(
+                    provider_result.provider,
+                    provider_result.model,
+                    estimated_cost_usd,
+                ),
+            )
         self._record_metric(
             "record_request_completed",
             lambda: self.metrics.record_request_completed(
@@ -273,6 +298,22 @@ class GatewayService:
             input_tokens=provider_result.input_tokens,
             output_tokens=provider_result.output_tokens,
         )
+
+    def _estimate_cost(self, provider_result: ProviderResult) -> Decimal | None:
+        try:
+            return self.cost_estimator.estimate_usd(
+                provider_result.provider,
+                provider_result.model,
+                provider_result.usage,
+            )
+        except AccountingError as exc:
+            log_event(
+                "accounting_estimation_failed",
+                provider=provider_result.provider,
+                model=provider_result.model,
+                error_type=type(exc).__name__,
+            )
+            return None
 
     def _request_metadata(self, request: GenerateRequest) -> dict[str, int | str]:
         prompt_hash = sha256()

@@ -1,4 +1,5 @@
 import asyncio
+from decimal import Decimal
 
 from app.repositories.request_log import InMemoryRequestLogRepository
 
@@ -69,6 +70,8 @@ def test_completion_and_failure_preserve_routing_metadata() -> None:
             latency_ms=2,
             input_tokens=1,
             output_tokens=1,
+            total_tokens=2,
+            estimated_cost_usd=Decimal("0.000001000000"),
         )
     )
     asyncio.run(
@@ -85,3 +88,9 @@ def test_completion_and_failure_preserve_routing_metadata() -> None:
         assert request["selected_model"] == "provider-model"
         assert request["provider"] == "mock"
         assert request["routing_reason"] == "first configured provider"
+    assert repository.requests["completed"]["total_tokens"] == 2
+    assert repository.requests["completed"]["estimated_cost_usd"] == Decimal(
+        "0.000001000000"
+    )
+    assert repository.requests["failed"]["total_tokens"] is None
+    assert repository.requests["failed"]["estimated_cost_usd"] is None

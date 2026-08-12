@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Protocol
 
 from sqlalchemy import select
@@ -35,8 +36,10 @@ class RequestLogRepository(Protocol):
         *,
         request_id: str,
         latency_ms: int,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None = None,
+        estimated_cost_usd: Decimal | None = None,
     ) -> None:
         """Update generation_requests current-state row after provider success."""
 
@@ -92,8 +95,10 @@ class NoopRequestLogRepository:
         *,
         request_id: str,
         latency_ms: int,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None = None,
+        estimated_cost_usd: Decimal | None = None,
     ) -> None:
         return None
 
@@ -146,6 +151,10 @@ class InMemoryRequestLogRepository:
             "message_count": message_count,
             "input_chars": input_chars,
             "status": "started",
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+            "estimated_cost_usd": None,
         }
         self._add_event(
             request_id=request_id,
@@ -181,14 +190,18 @@ class InMemoryRequestLogRepository:
         *,
         request_id: str,
         latency_ms: int,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None = None,
+        estimated_cost_usd: Decimal | None = None,
     ) -> None:
         request = self.requests[request_id]
         request.update(
             latency_ms=latency_ms,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            estimated_cost_usd=estimated_cost_usd,
             status="completed",
             error_type=None,
         )
@@ -353,8 +366,10 @@ class SQLAlchemyRequestLogRepository:
         model: str,
         provider: str,
         latency_ms: int,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None = None,
+        estimated_cost_usd: Decimal | None = None,
     ) -> None:
         """Compatibility alias; routing metadata is preserved, not overwritten."""
 
@@ -363,6 +378,8 @@ class SQLAlchemyRequestLogRepository:
             latency_ms=latency_ms,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            estimated_cost_usd=estimated_cost_usd,
         )
 
     async def mark_completed(
@@ -370,8 +387,10 @@ class SQLAlchemyRequestLogRepository:
         *,
         request_id: str,
         latency_ms: int,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None = None,
+        estimated_cost_usd: Decimal | None = None,
     ) -> None:
         """Record successful completion and its lifecycle event atomically."""
 
@@ -382,6 +401,8 @@ class SQLAlchemyRequestLogRepository:
                 generation_request.latency_ms = latency_ms
                 generation_request.input_tokens = input_tokens
                 generation_request.output_tokens = output_tokens
+                generation_request.total_tokens = total_tokens
+                generation_request.estimated_cost_usd = estimated_cost_usd
                 generation_request.error_type = None
                 generation_request.updated_at = datetime.now(UTC)
                 self._add_event(
@@ -487,7 +508,9 @@ class SQLAlchemyRequestLogRepository:
             select(GenerationRequest).where(GenerationRequest.request_id == request_id)
         )
         if generation_request is None:
-            raise RequestLogNotFoundError(f"Request log not found for request_id={request_id!r}")
+            raise RequestLogNotFoundError(
+                f"Request log not found for request_id={request_id!r}"
+            )
         return generation_request
 
     @staticmethod

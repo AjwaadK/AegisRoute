@@ -4,12 +4,12 @@ import os
 from uuid import uuid4
 
 import pytest
-from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import BigInteger, Numeric, create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.schema import CreateSchema, DropSchema
 
+from alembic import command
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -26,9 +26,7 @@ def test_routing_metadata_upgrade_preserves_data_and_downgrades() -> None:
     database_url = make_url(TEST_DATABASE_URL)
     query = dict(database_url.query)
     query["options"] = f"-csearch_path={schema_name}"
-    migration_url = database_url.set(query=query).render_as_string(
-        hide_password=False
-    )
+    migration_url = database_url.set(query=query).render_as_string(hide_password=False)
 
     with admin_engine.begin() as connection:
         connection.execute(CreateSchema(schema_name))
@@ -41,8 +39,7 @@ def test_routing_metadata_upgrade_preserves_data_and_downgrades() -> None:
         command.upgrade(config, "20260715_0001")
         with engine.begin() as connection:
             connection.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO generation_requests (
                         request_id, model, provider, status, prompt_hash,
                         message_count, input_chars
@@ -50,8 +47,7 @@ def test_routing_metadata_upgrade_preserves_data_and_downgrades() -> None:
                         'migration-request', 'public-model', 'mock', 'started',
                         :prompt_hash, 1, 5
                     )
-                    """
-                ),
+                    """),
                 {"prompt_hash": "a" * 64},
             )
 
@@ -61,25 +57,34 @@ def test_routing_metadata_upgrade_preserves_data_and_downgrades() -> None:
             for column in inspect(engine).get_columns("generation_requests")
         }
         with engine.connect() as connection:
-            row = connection.execute(
-                text(
-                    """
+            row = connection.execute(text("""
                     SELECT requested_model, selected_model, provider,
-                           routing_reason
+                           routing_reason, input_tokens, output_tokens,
+                           total_tokens, estimated_cost_usd
                     FROM generation_requests
                     WHERE request_id = 'migration-request'
-                    """
-                )
-            ).one()
+                    """)).one()
 
         assert row.requested_model == "public-model"
         assert row.selected_model is None
         assert row.provider == "mock"
         assert row.routing_reason is None
+        assert row.input_tokens is None
+        assert row.output_tokens is None
+        assert row.total_tokens is None
+        assert row.estimated_cost_usd is None
         assert columns["requested_model"]["nullable"] is False
         assert columns["selected_model"]["nullable"] is True
         assert columns["provider"]["nullable"] is True
         assert columns["routing_reason"]["nullable"] is True
+        assert isinstance(columns["input_tokens"]["type"], BigInteger)
+        assert isinstance(columns["output_tokens"]["type"], BigInteger)
+        assert isinstance(columns["total_tokens"]["type"], BigInteger)
+        assert isinstance(columns["estimated_cost_usd"]["type"], Numeric)
+        assert columns["estimated_cost_usd"]["type"].precision == 30
+        assert columns["estimated_cost_usd"]["type"].scale == 12
+        assert columns["total_tokens"]["nullable"] is True
+        assert columns["estimated_cost_usd"]["nullable"] is True
 
         command.downgrade(config, "20260715_0001")
         downgraded_columns = {

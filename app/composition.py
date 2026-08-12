@@ -7,6 +7,7 @@ from openai import AsyncOpenAI
 from prometheus_client import CollectorRegistry
 from sqlalchemy.engine import Engine
 
+from app.accounting import CostEstimator, PricingCatalog
 from app.analytics.service import RoutingAnalyticsService
 from app.config import (
     OpenAISettings,
@@ -62,6 +63,7 @@ def build_application_container(
     provider_route_settings: ProviderRouteSettings | None = None,
     openai_settings: OpenAISettings | None = None,
     openai_client_factory: Callable[..., AsyncOpenAIClient] = AsyncOpenAI,
+    pricing_catalog: PricingCatalog | None = None,
 ) -> ApplicationContainer:
     """Assemble and validate the production dependency graph."""
 
@@ -141,6 +143,7 @@ def build_application_container(
             metrics=metrics,
             provider_executor=provider_executor,
             route_executor=route_executor,
+            cost_estimator=CostEstimator(pricing_catalog),
         )
         return ApplicationContainer(
             engine=engine,

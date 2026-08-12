@@ -1,7 +1,7 @@
 import asyncio
 
 from app.providers.base import ProviderAdapter
-from app.schemas.generation import GenerateRequest, ProviderResult
+from app.schemas.generation import GenerateRequest, ProviderResult, TokenUsage
 
 
 class MockProviderAdapter(ProviderAdapter):
@@ -47,6 +47,9 @@ class MockProviderAdapter(ProviderAdapter):
             provider=self.provider_name,
             model=request.model,
             output=output,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            usage=TokenUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+            ),
         )

@@ -2,7 +2,7 @@ import importlib
 
 import pytest
 from alembic.config import Config
-from sqlalchemy import CheckConstraint, Text
+from sqlalchemy import BigInteger, CheckConstraint, Numeric, Text
 
 from app.db.base import Base
 from app.db.models import GenerationEvent, GenerationRequest
@@ -13,7 +13,11 @@ def column(model, name):
 
 
 def check_constraint_names(model):
-    return {constraint.name for constraint in model.__table__.constraints if isinstance(constraint, CheckConstraint)}
+    return {
+        constraint.name
+        for constraint in model.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
 
 
 def test_session_module_imports_without_database_url(monkeypatch):
@@ -28,7 +32,9 @@ def test_get_database_url_requires_database_url(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     session_module = importlib.import_module("app.db.session")
 
-    with pytest.raises(RuntimeError, match="DATABASE_URL environment variable is required"):
+    with pytest.raises(
+        RuntimeError, match="DATABASE_URL environment variable is required"
+    ):
         session_module.get_database_url()
 
 
@@ -93,6 +99,14 @@ def test_generation_request_required_and_nullable_columns():
     assert column(GenerationRequest, "latency_ms").nullable is True
     assert column(GenerationRequest, "input_tokens").nullable is True
     assert column(GenerationRequest, "output_tokens").nullable is True
+    assert column(GenerationRequest, "total_tokens").nullable is True
+    assert column(GenerationRequest, "estimated_cost_usd").nullable is True
+    assert isinstance(column(GenerationRequest, "input_tokens").type, BigInteger)
+    assert isinstance(column(GenerationRequest, "output_tokens").type, BigInteger)
+    assert isinstance(column(GenerationRequest, "total_tokens").type, BigInteger)
+    cost_type = column(GenerationRequest, "estimated_cost_usd").type
+    assert isinstance(cost_type, Numeric)
+    assert (cost_type.precision, cost_type.scale, cost_type.asdecimal) == (30, 12, True)
 
 
 def test_generation_event_foreign_key_is_required_and_cascades():
@@ -111,8 +125,12 @@ def test_expected_check_constraints_exist():
         "ck_generation_requests_latency_ms_gte_0",
         "ck_generation_requests_input_tokens_gte_0",
         "ck_generation_requests_output_tokens_gte_0",
+        "ck_generation_requests_total_tokens_gte_0",
+        "ck_generation_requests_estimated_cost_usd_gte_0",
     }.issubset(check_constraint_names(GenerationRequest))
-    assert "ck_generation_events_latency_ms_gte_0" in check_constraint_names(GenerationEvent)
+    assert "ck_generation_events_latency_ms_gte_0" in check_constraint_names(
+        GenerationEvent
+    )
 
 
 def test_timestamp_columns_are_timezone_aware():
@@ -125,7 +143,9 @@ def test_timestamp_columns_are_timezone_aware():
 
 
 def test_metadata_includes_generation_tables():
-    assert {"generation_requests", "generation_events"}.issubset(Base.metadata.tables.keys())
+    assert {"generation_requests", "generation_events"}.issubset(
+        Base.metadata.tables.keys()
+    )
 
 
 def test_alembic_config_loads_script_location():

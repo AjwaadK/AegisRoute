@@ -204,3 +204,28 @@
   cancellation, and composition with injected clients and zero live API calls.
 - Streaming, tools, structured and multimodal output, pricing, and live API
   validation remain deferred. No persistence schema or migration changed.
+
+## Token & Cost Accounting V1 — 2026-08-11
+
+- Evolved provider results to carry provider-neutral nullable `TokenUsage` for
+  input, output, and provider-reported total counts. OpenAI Responses usage now
+  maps without SDK type leakage or invented zero values.
+- Added an exact-match static `PricingCatalog` and network-free `CostEstimator`.
+  Production pricing defaults to empty; estimates use USD `Decimal` arithmetic
+  and final half-up quantization to 12 decimal places.
+- Persisted logical-request `BIGINT` token counts and nullable
+  `NUMERIC(30,12)` `estimated_cost_usd` through Alembic revision
+  `20260811_0003`. Existing rows remain null and historical values are not
+  recomputed from future pricing.
+- Added bounded `aegisroute_tokens_total` input/output counters and
+  `aegisroute_estimated_cost_usd_total`; unknown usage or price emits no fake
+  token or cost observation.
+- Accounting remains fail-open. Retry-then-success and fallback success persist
+  only usage observed on the final successful response while retaining one
+  logical request. Failed/timed-out attempts may still be billable upstream, so
+  local cost is observed/estimated and provider billing remains authoritative.
+- Attempt-level persistence, analytics expansion, live pricing synchronization,
+  billing, budgets, quotas, and cost-aware routing remain deferred.
+- Validation: focused accounting, provider, gateway, persistence, migration,
+  retry/fallback, and metrics coverage passed; exact final full-suite and
+  formatting results are recorded in the implementation handoff.

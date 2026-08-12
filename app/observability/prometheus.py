@@ -1,5 +1,7 @@
 """Prometheus-backed application metrics with an explicit registry."""
 
+from decimal import Decimal
+
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
 LATENCY_BUCKETS = (0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120)
@@ -63,6 +65,18 @@ class PrometheusApplicationMetrics:
             ("error_type",),
             registry=registry,
         )
+        self._tokens = Counter(
+            "aegisroute_tokens_total",
+            "Provider-observed input and output tokens.",
+            ("provider", "model", "token_type"),
+            registry=registry,
+        )
+        self._estimated_cost = Counter(
+            "aegisroute_estimated_cost_usd_total",
+            "Request-time estimated cost in USD for observed usage.",
+            ("provider", "model"),
+            registry=registry,
+        )
 
     def record_request_started(self) -> None:
         self._requests.inc()
@@ -119,3 +133,28 @@ class PrometheusApplicationMetrics:
             error_type=error_type,
             failure_stage=failure_stage,
         ).inc()
+
+    def record_tokens(
+        self,
+        provider: str,
+        model: str,
+        input_tokens: int | None,
+        output_tokens: int | None,
+    ) -> None:
+        for token_type, value in (
+            ("input", input_tokens),
+            ("output", output_tokens),
+        ):
+            if value is not None:
+                self._tokens.labels(
+                    provider=provider,
+                    model=model,
+                    token_type=token_type,
+                ).inc(value)
+
+    def record_estimated_cost(
+        self, provider: str, model: str, estimated_cost_usd: Decimal
+    ) -> None:
+        self._estimated_cost.labels(provider=provider, model=model).inc(
+            float(estimated_cost_usd)
+        )

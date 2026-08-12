@@ -11,7 +11,7 @@ from app.repositories.request_log import InMemoryRequestLogRepository
 from app.routing.model_registry import ModelDefinition, ModelRegistry
 from app.routing.policy import DeterministicRoutingPolicy
 from app.routing.provider_registry import ProviderRegistry
-from app.schemas.generation import GenerateRequest, ProviderResult
+from app.schemas.generation import GenerateRequest, ProviderResult, TokenUsage
 from app.services.gateway import GatewayService
 
 
@@ -35,8 +35,7 @@ class SuccessProvider(ProviderAdapter):
             provider=self.provider_name,
             model=request.model,
             output="fallback success",
-            input_tokens=2,
-            output_tokens=3,
+            usage=TokenUsage(input_tokens=2, output_tokens=3, total_tokens=5),
         )
 
 
@@ -87,12 +86,29 @@ def test_fallback_success_is_one_successful_logical_gateway_request() -> None:
     assert response.model == "model-v1"
     assert list(repository.requests) == ["request-1"]
     assert repository.requests["request-1"]["status"] == "completed"
+    assert repository.requests["request-1"]["total_tokens"] == 5
+    assert repository.requests["request-1"]["estimated_cost_usd"] is None
     assert [event["event_type"] for event in repository.events] == [
         "generation_started",
         "generation_routed",
         "generation_completed",
     ]
     assert sample(registry, "aegisroute_generation_completed_total") == 1
+    assert (
+        sample(
+            registry,
+            "aegisroute_tokens_total",
+            {"provider": "fallback", "model": "model-v1", "token_type": "input"},
+        )
+        == 2
+    )
+    assert (
+        registry.get_sample_value(
+            "aegisroute_estimated_cost_usd_total",
+            {"provider": "fallback", "model": "model-v1"},
+        )
+        is None
+    )
     assert (
         registry.get_sample_value(
             "aegisroute_generation_failed_total",

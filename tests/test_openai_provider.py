@@ -14,7 +14,12 @@ from app.errors import (
     ProviderUnavailableError,
 )
 from app.providers.openai import OpenAIProviderAdapter
-from app.schemas.generation import ChatMessage, GenerateRequest, ProviderResult
+from app.schemas.generation import (
+    ChatMessage,
+    GenerateRequest,
+    ProviderResult,
+    TokenUsage,
+)
 
 
 class FakeResponses:
@@ -64,8 +69,7 @@ async def test_openai_provider_translates_one_responses_call() -> None:
         provider="openai",
         model="gpt-test",
         output="Hi",
-        input_tokens=4,
-        output_tokens=2,
+        usage=TokenUsage(input_tokens=4, output_tokens=2, total_tokens=6),
     )
     assert responses.calls == [
         {
@@ -89,7 +93,23 @@ async def test_openai_provider_handles_absent_usage() -> None:
         request(), "request-1"
     )
 
-    assert (result.input_tokens, result.output_tokens) == (0, 0)
+    assert result.usage is None
+
+
+@pytest.mark.anyio
+async def test_openai_provider_preserves_partially_absent_usage() -> None:
+    responses = FakeResponses(
+        SimpleNamespace(
+            output_text="Hi",
+            usage=SimpleNamespace(input_tokens=4, output_tokens=None),
+        )
+    )
+
+    result = await OpenAIProviderAdapter(FakeClient(responses)).generate(
+        request(), "request-1"
+    )
+
+    assert result.usage == TokenUsage(input_tokens=4)
 
 
 def sdk_status_error(error_type, status: int, code: str = "stable_code"):

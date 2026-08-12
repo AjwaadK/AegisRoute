@@ -3,6 +3,7 @@
 import asyncio
 import os
 from collections.abc import Generator
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -13,15 +14,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.schema import CreateSchema, DropSchema
 
+from app.composition import build_application_container
 from app.db.base import Base
 from app.db.models import GenerationEvent, GenerationRequest
-from app.composition import build_application_container
 from app.main import create_app
 from app.providers.base import ProviderAdapter
 from app.repositories.errors import RequestLogNotFoundError
 from app.repositories.request_log import SQLAlchemyRequestLogRepository
 from app.schemas.generation import GenerateRequest, ProviderResult
-
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -46,9 +46,7 @@ def session_factory() -> Generator[sessionmaker[Session], None, None]:
     engine = create_engine(isolated_url)
     Base.metadata.create_all(engine)
     original_database_url = os.environ.get("DATABASE_URL")
-    os.environ["DATABASE_URL"] = isolated_url.render_as_string(
-        hide_password=False
-    )
+    os.environ["DATABASE_URL"] = isolated_url.render_as_string(hide_password=False)
     try:
         yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     finally:
@@ -72,11 +70,15 @@ def clear_tables(session_factory: sessionmaker[Session]) -> Generator[None, None
 
 
 @pytest.fixture
-def repository(session_factory: sessionmaker[Session]) -> SQLAlchemyRequestLogRepository:
+def repository(
+    session_factory: sessionmaker[Session],
+) -> SQLAlchemyRequestLogRepository:
     return SQLAlchemyRequestLogRepository(session_factory)
 
 
-async def create_started_request(repository: SQLAlchemyRequestLogRepository, request_id: str = "request-123") -> None:
+async def create_started_request(
+    repository: SQLAlchemyRequestLogRepository, request_id: str = "request-123"
+) -> None:
     await repository.create_started_request(
         request_id=request_id,
         requested_model="mock-model-v1",
@@ -101,7 +103,9 @@ def test_started_request_creates_request_and_started_event(
     assert generation_request.selected_model is None
     assert generation_request.provider is None
     assert generation_request.routing_reason is None
-    assert [(event.event_type, event.status) for event in events] == [("generation_started", "started")]
+    assert [(event.event_type, event.status) for event in events] == [
+        ("generation_started", "started")
+    ]
 
 
 def test_complete_request_updates_row_and_appends_event(
@@ -122,12 +126,16 @@ def test_complete_request_updates_row_and_appends_event(
             latency_ms=12,
             input_tokens=3,
             output_tokens=4,
+            total_tokens=7,
+            estimated_cost_usd=Decimal("0.000123456789"),
         )
     )
 
     with session_factory() as session:
         generation_request = session.scalar(select(GenerationRequest))
-        events = session.scalars(select(GenerationEvent).order_by(GenerationEvent.id)).all()
+        events = session.scalars(
+            select(GenerationEvent).order_by(GenerationEvent.id)
+        ).all()
 
     assert generation_request is not None
     assert generation_request.status == "completed"
@@ -137,6 +145,8 @@ def test_complete_request_updates_row_and_appends_event(
     assert generation_request.routing_reason == "selected for test"
     assert generation_request.latency_ms == 12
     assert (generation_request.input_tokens, generation_request.output_tokens) == (3, 4)
+    assert generation_request.total_tokens == 7
+    assert generation_request.estimated_cost_usd == Decimal("0.000123456789")
     assert generation_request.error_type is None
     assert events[-1].event_type == "generation_completed"
     assert events[-1].status == "completed"
@@ -165,7 +175,9 @@ def test_fail_request_updates_row_and_appends_event(
 
     with session_factory() as session:
         generation_request = session.scalar(select(GenerationRequest))
-        event = session.scalars(select(GenerationEvent).order_by(GenerationEvent.id)).all()[-1]
+        event = session.scalars(
+            select(GenerationEvent).order_by(GenerationEvent.id)
+        ).all()[-1]
 
     assert generation_request is not None
     assert generation_request.status == "failed"
@@ -174,7 +186,10 @@ def test_fail_request_updates_row_and_appends_event(
     assert generation_request.routing_reason == "selected for test"
     assert generation_request.error_type == "ProviderError"
     assert generation_request.latency_ms == 12
-    assert (event.event_type, event.message) == ("generation_failed", "sanitized provider failure")
+    assert (event.event_type, event.message) == (
+        "generation_failed",
+        "sanitized provider failure",
+    )
 
 
 @pytest.mark.parametrize(
@@ -200,7 +215,9 @@ def test_unknown_request_id_raises_not_found_error(
                 output_tokens=1,
             )
         elif operation == "mark_failed":
-            await repository.mark_failed(request_id="missing", error_type="ProviderError", latency_ms=1)
+            await repository.mark_failed(
+                request_id="missing", error_type="ProviderError", latency_ms=1
+            )
         else:
             await repository.add_event(request_id="missing", event_type="attempted")
 
@@ -315,11 +332,17 @@ def test_add_event_does_not_change_current_status(
     repository: SQLAlchemyRequestLogRepository, session_factory: sessionmaker[Session]
 ) -> None:
     asyncio.run(create_started_request(repository))
-    asyncio.run(repository.add_event(request_id="request-123", event_type="provider_attempted", status="started"))
+    asyncio.run(
+        repository.add_event(
+            request_id="request-123", event_type="provider_attempted", status="started"
+        )
+    )
 
     with session_factory() as session:
         generation_request = session.scalar(select(GenerationRequest))
-        event = session.scalars(select(GenerationEvent).order_by(GenerationEvent.id)).all()[-1]
+        event = session.scalars(
+            select(GenerationEvent).order_by(GenerationEvent.id)
+        ).all()[-1]
 
     assert generation_request is not None
     assert generation_request.status == "started"
@@ -329,7 +352,9 @@ def test_add_event_does_not_change_current_status(
 class DeterministicProvider(ProviderAdapter):
     provider_name = "deterministic"
 
-    async def generate(self, request: GenerateRequest, request_id: str) -> ProviderResult:
+    async def generate(
+        self, request: GenerateRequest, request_id: str
+    ) -> ProviderResult:
         return ProviderResult(
             request_id=request_id,
             provider=self.provider_name,
@@ -349,7 +374,10 @@ def test_application_composition_persists_completed_request(
     with TestClient(application) as client:
         response = client.post(
             "/generate",
-            json={"model": "mock-model-v1", "messages": [{"role": "user", "content": "Hello"}]},
+            json={
+                "model": "mock-model-v1",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
         )
 
     with session_factory() as session:

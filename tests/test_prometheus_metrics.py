@@ -1,5 +1,7 @@
 import inspect
+from decimal import Decimal
 
+import pytest
 from prometheus_client import CollectorRegistry
 
 from app.observability.prometheus import PrometheusApplicationMetrics
@@ -30,9 +32,32 @@ def test_prometheus_metrics_record_generation_lifecycle() -> None:
     )
     metrics.record_provider_retry("mock", "ProviderTimeoutError")
     metrics.record_provider_fallback("mock", "backup", "ProviderTimeoutError")
+    metrics.record_tokens("mock", "mock-model-v1", 7, 3)
+    metrics.record_estimated_cost("mock", "mock-model-v1", Decimal("0.000012"))
 
     assert sample(registry, "aegisroute_generation_requests_total") == 1
     assert sample(registry, "aegisroute_generation_completed_total") == 1
+    assert (
+        sample(
+            registry,
+            "aegisroute_tokens_total",
+            {"provider": "mock", "model": "mock-model-v1", "token_type": "input"},
+        )
+        == 7
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_tokens_total",
+            {"provider": "mock", "model": "mock-model-v1", "token_type": "output"},
+        )
+        == 3
+    )
+    assert sample(
+        registry,
+        "aegisroute_estimated_cost_usd_total",
+        {"provider": "mock", "model": "mock-model-v1"},
+    ) == pytest.approx(0.000012)
     assert (
         sample(
             registry,
@@ -129,6 +154,8 @@ def test_metrics_api_accepts_only_bounded_operational_dimensions() -> None:
         "record_provider_fallback",
         "record_request_completed",
         "record_request_failed",
+        "record_tokens",
+        "record_estimated_cost",
     )
     parameters = {
         parameter
