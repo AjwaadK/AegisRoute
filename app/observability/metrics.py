@@ -27,6 +27,16 @@ class ApplicationMetrics(Protocol):
         self, from_provider: str, to_provider: str, reason: str
     ) -> None: ...
 
+    def record_stream_started(self) -> None: ...
+
+    def record_stream_completed(self, provider: str, model: str) -> None: ...
+
+    def record_stream_failed(self, provider: str, model: str, stage: str) -> None: ...
+
+    def record_stream_time_to_first_token(
+        self, provider: str, model: str, latency_seconds: float
+    ) -> None: ...
+
     def record_request_completed(
         self,
         provider: str,
@@ -75,6 +85,20 @@ class NoopApplicationMetrics:
 
     def record_provider_fallback(
         self, from_provider: str, to_provider: str, reason: str
+    ) -> None:
+        pass
+
+    def record_stream_started(self) -> None:
+        pass
+
+    def record_stream_completed(self, provider: str, model: str) -> None:
+        pass
+
+    def record_stream_failed(self, provider: str, model: str, stage: str) -> None:
+        pass
+
+    def record_stream_time_to_first_token(
+        self, provider: str, model: str, latency_seconds: float
     ) -> None:
         pass
 

@@ -43,13 +43,15 @@ Current request path:
 ```text
 Client
   ↓
-FastAPI (`POST /generate`)
+FastAPI (`POST /generate`, `POST /generate/stream`)
   ↓
 GatewayService
   ↓
 DeterministicRoutingPolicy
   ↓
 ModelRegistry / ProviderRegistry
+  ↓
+RouteExecutor (ordered provider fallback)
   ↓
 ProviderExecutor (deadline + bounded retries)
   ↓
@@ -83,9 +85,11 @@ AegisRoute is in **Phase I: Reliable Gateway**.
 - ✅ Typed provider failures
 - ✅ Configurable provider timeout policy
 - ✅ Bounded retries for eligible provider failures
-- 🚧 Provider resilience (fallback routing and circuit breaking remain planned)
+- ✅ Bounded fallback routing for eligible provider failures
+- ✅ Provider-neutral text streaming over SSE
+- 🚧 Circuit breaking remains planned
 - ✅ OpenAI Responses API provider adapter (mocked SDK validation)
-- ⬜ Additional provider adapters and streaming
+- ⬜ Additional provider adapters
 - ✅ Provider-observed token usage and configured estimated cost accounting
 - ⬜ API-key authentication, authorization, quotas, and rate limiting
 - ⬜ Redis caching and asynchronous workers
@@ -94,6 +98,10 @@ AegisRoute is in **Phase I: Reliable Gateway**.
 
 AegisRoute records provider-observed token usage and derives estimated USD cost
 from configured pricing; provider billing remains authoritative.
+
+Streaming retries and fallbacks are permitted only before the first
+user-visible text chunk. After that commit point, failures terminate the stream;
+V1 does not attempt mid-stream recovery.
 
 ## Why AegisRoute
 

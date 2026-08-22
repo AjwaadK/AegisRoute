@@ -59,6 +59,30 @@ class PrometheusApplicationMetrics:
             ("from_provider", "to_provider", "reason"),
             registry=registry,
         )
+        self._streams_started = Counter(
+            "aegisroute_streams_started_total",
+            "Logical streaming generation requests started.",
+            registry=registry,
+        )
+        self._streams_completed = Counter(
+            "aegisroute_streams_completed_total",
+            "Successfully completed streaming generation requests.",
+            ("provider", "model"),
+            registry=registry,
+        )
+        self._streams_failed = Counter(
+            "aegisroute_streams_failed_total",
+            "Failed streaming generation requests by commit stage.",
+            ("provider", "model", "stage"),
+            registry=registry,
+        )
+        self._stream_ttft = Histogram(
+            "aegisroute_stream_time_to_first_token_seconds",
+            "Provider-attempt latency to the first user-visible text delta.",
+            ("provider", "model"),
+            buckets=LATENCY_BUCKETS,
+            registry=registry,
+        )
         self._routing_failures = Counter(
             "aegisroute_routing_failures_total",
             "Routing failures before provider invocation.",
@@ -115,6 +139,22 @@ class PrometheusApplicationMetrics:
             to_provider=to_provider,
             reason=reason,
         ).inc()
+
+    def record_stream_started(self) -> None:
+        self._streams_started.inc()
+
+    def record_stream_completed(self, provider: str, model: str) -> None:
+        self._streams_completed.labels(provider=provider, model=model).inc()
+
+    def record_stream_failed(self, provider: str, model: str, stage: str) -> None:
+        self._streams_failed.labels(provider=provider, model=model, stage=stage).inc()
+
+    def record_stream_time_to_first_token(
+        self, provider: str, model: str, latency_seconds: float
+    ) -> None:
+        self._stream_ttft.labels(provider=provider, model=model).observe(
+            latency_seconds
+        )
 
     def record_request_completed(
         self,

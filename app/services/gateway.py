@@ -1,4 +1,5 @@
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 from decimal import Decimal
 from hashlib import sha256
 from time import perf_counter
@@ -14,7 +15,14 @@ from app.routing.contracts import RoutingDecision, RoutingRequest
 from app.routing.executor import RouteExecutor
 from app.routing.policy import RoutingPolicy
 from app.routing.provider_registry import ProviderRegistry
-from app.schemas.generation import GenerateRequest, GenerateResponse, ProviderResult
+from app.schemas.generation import (
+    GenerateRequest,
+    GenerateResponse,
+    ProviderResult,
+    ProviderStreamEvent,
+    StreamCompleted,
+    StreamTextDelta,
+)
 
 
 class GatewayService:
@@ -297,6 +305,271 @@ class GatewayService:
             latency_ms=latency_ms,
             input_tokens=provider_result.input_tokens,
             output_tokens=provider_result.output_tokens,
+        )
+
+    async def stream(
+        self, request: GenerateRequest, request_id: str
+    ) -> AsyncIterator[ProviderStreamEvent]:
+        """Own one logical streaming lifecycle across retries and fallbacks."""
+
+        metrics_lifecycle_start = perf_counter()
+        self._record_metric(
+            "record_request_started", self.metrics.record_request_started
+        )
+        if (
+            self.routing_policy is None
+            or self.provider_registry is None
+            or self.route_executor is None
+        ):
+            self._record_metric(
+                "record_request_failed",
+                lambda: self.metrics.record_request_failed("RuntimeError", "internal"),
+            )
+            raise RuntimeError("GatewayService routing dependencies are not configured")
+
+        lifecycle_start = perf_counter()
+        await self._persist_request_log_insert(
+            request_id=request_id,
+            operation="create_started_request",
+            action=self.request_log_repository.create_started_request(
+                request_id=request_id,
+                requested_model=request.model,
+                **self._request_metadata(request),
+            ),
+        )
+
+        decision: RoutingDecision | None = None
+        try:
+            decision = self.routing_policy.route(
+                RoutingRequest(requested_model=request.model)
+            )
+            for candidate in decision.candidates:
+                self.provider_registry.get(candidate.provider_name)
+        except (ModelNotFoundError, ProviderNotFoundError) as exc:
+            error_type = type(exc).__name__
+            self._record_metric(
+                "record_routing_failure",
+                lambda: self.metrics.record_routing_failure(error_type),
+            )
+            self._record_metric(
+                "record_request_failed",
+                lambda: self.metrics.record_request_failed(error_type, "routing"),
+            )
+            await self._persist_request_log_update(
+                request_id=request_id,
+                operation="mark_failed",
+                action=self.request_log_repository.mark_failed(
+                    request_id=request_id,
+                    error_type=error_type,
+                    latency_ms=int((perf_counter() - lifecycle_start) * 1000),
+                ),
+            )
+            raise
+
+        log_event(
+            "routing_decision",
+            request_id=request_id,
+            requested_model=decision.requested_model,
+            selected_model=decision.selected_model,
+            provider_name=decision.provider_name,
+            routing_reason=decision.reason,
+            lifecycle_stage="routed",
+        )
+        await self._persist_request_log_update(
+            request_id=request_id,
+            operation="mark_routed",
+            action=self.request_log_repository.mark_routed(
+                request_id=request_id,
+                selected_model=decision.selected_model,
+                provider_name=decision.provider_name,
+                routing_reason=decision.reason,
+            ),
+        )
+        self._record_metric("record_stream_started", self.metrics.record_stream_started)
+        log_event(
+            "stream_started",
+            request_id=request_id,
+            provider=decision.provider_name,
+            model=decision.selected_model,
+            committed=False,
+        )
+
+        stream_started = perf_counter()
+        committed = False
+        completed = False
+        failure_recorded = False
+        try:
+            async for event in self.route_executor.stream(
+                decision,
+                request,
+                request_id,
+                self.metrics,
+                elapsed_request_seconds=perf_counter() - metrics_lifecycle_start,
+            ):
+                if isinstance(event, StreamTextDelta) and not committed:
+                    committed = True
+                if isinstance(event, StreamCompleted):
+                    completed = True
+                    latency_ms = int((perf_counter() - stream_started) * 1000)
+                    result = ProviderResult(
+                        request_id=request_id,
+                        provider=event.provider,
+                        model=event.model,
+                        output="",
+                        usage=event.usage,
+                    )
+                    estimated_cost_usd = self._estimate_cost(result)
+                    await self._persist_request_log_update(
+                        request_id=request_id,
+                        operation="mark_completed",
+                        action=self.request_log_repository.mark_completed(
+                            request_id=request_id,
+                            latency_ms=latency_ms,
+                            input_tokens=result.input_tokens,
+                            output_tokens=result.output_tokens,
+                            total_tokens=result.total_tokens,
+                            estimated_cost_usd=estimated_cost_usd,
+                        ),
+                    )
+                    self._record_metric(
+                        "record_tokens",
+                        lambda result=result: self.metrics.record_tokens(
+                            result.provider,
+                            result.model,
+                            result.input_tokens,
+                            result.output_tokens,
+                        ),
+                    )
+                    if estimated_cost_usd is not None:
+                        self._record_metric(
+                            "record_estimated_cost",
+                            lambda result=result, estimated_cost_usd=estimated_cost_usd: self.metrics.record_estimated_cost(
+                                result.provider,
+                                result.model,
+                                estimated_cost_usd,
+                            ),
+                        )
+                    self._record_metric(
+                        "record_stream_completed",
+                        lambda result=result: self.metrics.record_stream_completed(
+                            result.provider, result.model
+                        ),
+                    )
+                    self._record_metric(
+                        "record_request_completed",
+                        lambda result=result: self.metrics.record_request_completed(
+                            result.provider,
+                            result.model,
+                            perf_counter() - metrics_lifecycle_start,
+                        ),
+                    )
+                    log_event(
+                        "stream_completed",
+                        request_id=request_id,
+                        provider=result.provider,
+                        model=result.model,
+                        committed=committed,
+                        elapsed_seconds=perf_counter() - stream_started,
+                    )
+                yield event
+        except asyncio.CancelledError:
+            await self._record_stream_failure(
+                request_id=request_id,
+                provider=decision.provider_name,
+                model=decision.selected_model,
+                committed=committed,
+                stream_started=stream_started,
+                error_type="stream_cancelled",
+                log_name="stream_cancelled",
+            )
+            failure_recorded = True
+            raise
+        except Exception as exc:
+            await self._record_stream_failure(
+                request_id=request_id,
+                provider=(
+                    exc.provider_name
+                    if isinstance(exc, ProviderError)
+                    else decision.provider_name
+                ),
+                model=next(
+                    (
+                        candidate.selected_model
+                        for candidate in decision.candidates
+                        if isinstance(exc, ProviderError)
+                        and candidate.provider_name == exc.provider_name
+                    ),
+                    decision.selected_model,
+                ),
+                committed=committed,
+                stream_started=stream_started,
+                error_type=(
+                    "stream_failed_after_commit"
+                    if committed
+                    else "stream_failed_before_commit"
+                ),
+                log_name=(
+                    "stream_failed_post_commit"
+                    if committed
+                    else "stream_failed_pre_commit"
+                ),
+                cause_type=type(exc).__name__,
+            )
+            failure_recorded = True
+            raise
+        finally:
+            if not completed and not failure_recorded:
+                await self._record_stream_failure(
+                    request_id=request_id,
+                    provider=decision.provider_name,
+                    model=decision.selected_model,
+                    committed=committed,
+                    stream_started=stream_started,
+                    error_type="stream_cancelled",
+                    log_name="stream_cancelled",
+                )
+        if not completed:
+            raise RuntimeError("Streaming execution ended without completion")
+
+    async def _record_stream_failure(
+        self,
+        *,
+        request_id: str,
+        provider: str,
+        model: str,
+        committed: bool,
+        stream_started: float,
+        error_type: str,
+        log_name: str,
+        cause_type: str | None = None,
+    ) -> None:
+        stage = "post_commit" if committed else "pre_commit"
+        latency_ms = int((perf_counter() - stream_started) * 1000)
+        self._record_metric(
+            "record_stream_failed",
+            lambda: self.metrics.record_stream_failed(provider, model, stage),
+        )
+        self._record_metric(
+            "record_request_failed",
+            lambda: self.metrics.record_request_failed(error_type, "provider"),
+        )
+        await self._persist_request_log_update(
+            request_id=request_id,
+            operation="mark_failed",
+            action=self.request_log_repository.mark_failed(
+                request_id=request_id,
+                error_type=error_type,
+                latency_ms=latency_ms,
+            ),
+        )
+        log_event(
+            log_name,
+            request_id=request_id,
+            provider=provider,
+            model=model,
+            committed=committed,
+            elapsed_seconds=perf_counter() - stream_started,
+            error_type=cause_type or error_type,
         )
 
     def _estimate_cost(self, provider_result: ProviderResult) -> Decimal | None:

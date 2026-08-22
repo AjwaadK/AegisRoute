@@ -2,7 +2,8 @@
 
 import asyncio
 import random
-from collections.abc import Awaitable, Callable
+import sys
+from collections.abc import AsyncIterator, Awaitable, Callable
 from time import monotonic
 from typing import TypeVar
 
@@ -16,8 +17,14 @@ from app.errors import (
     ProviderUnavailableError,
 )
 from app.observability.metrics import ApplicationMetrics
-from app.providers.base import ProviderAdapter
-from app.schemas.generation import GenerateRequest, ProviderResult
+from app.providers.base import ProviderAdapter, StreamingProvider
+from app.schemas.generation import (
+    GenerateRequest,
+    ProviderResult,
+    ProviderStreamEvent,
+    StreamCompleted,
+    StreamTextDelta,
+)
 
 Clock = Callable[[], float]
 Sleep = Callable[[float], Awaitable[None]]
@@ -182,6 +189,138 @@ class ProviderExecutor:
                 raise
             return result
 
+    async def stream(
+        self,
+        provider: ProviderAdapter,
+        request: GenerateRequest,
+        request_id: str,
+        selected_model: str,
+        metrics: ApplicationMetrics,
+        *,
+        elapsed_request_seconds: float = 0.0,
+    ) -> AsyncIterator[ProviderStreamEvent]:
+        """Retry one provider only until its first visible text delta."""
+
+        remaining_budget = max(
+            0.0,
+            self.policy.settings.request_deadline_seconds - elapsed_request_seconds,
+        )
+        deadline = self._clock() + remaining_budget
+        attempts_made = 0
+
+        while True:
+            attempts_made += 1
+            attempt_started = self._clock()
+            committed = False
+            completed = False
+            iterator: AsyncIterator[ProviderStreamEvent] | None = None
+            self._record_metric(
+                "record_provider_call",
+                lambda: metrics.record_provider_call(
+                    provider.provider_name, selected_model
+                ),
+            )
+            try:
+                if not isinstance(provider, StreamingProvider):
+                    raise ProviderUnavailableError(
+                        provider.provider_name,
+                        provider_code="streaming_unsupported",
+                        message=(
+                            f"Provider '{provider.provider_name}' does not support "
+                            "streaming"
+                        ),
+                    )
+                iterator = provider.stream(request=request, request_id=request_id)
+                while True:
+                    try:
+                        event = await self._next_before_deadline(
+                            iterator,
+                            provider.provider_name,
+                            max(0.0, deadline - self._clock()),
+                        )
+                    except StopAsyncIteration:
+                        break
+                    if isinstance(event, StreamTextDelta):
+                        if not committed:
+                            self._record_metric(
+                                "record_stream_time_to_first_token",
+                                lambda attempt_started=attempt_started: metrics.record_stream_time_to_first_token(
+                                    provider.provider_name,
+                                    selected_model,
+                                    max(0.0, self._clock() - attempt_started),
+                                ),
+                            )
+                        committed = True
+                    elif isinstance(event, StreamCompleted):
+                        completed = True
+                    yield event
+                    if completed:
+                        return
+                raise RuntimeError("Provider stream ended without a completion event")
+            except ProviderError as error:
+                error_type = type(error).__name__
+                self._record_metric(
+                    "record_provider_failure",
+                    lambda error_type=error_type, attempt_started=attempt_started: metrics.record_provider_failure(
+                        provider.provider_name,
+                        selected_model,
+                        error_type,
+                        max(0.0, self._clock() - attempt_started),
+                    ),
+                )
+                if (
+                    committed
+                    or not self.policy.is_retryable(error)
+                    or attempts_made >= self.policy.settings.max_attempts
+                ):
+                    raise
+                retry_number = attempts_made - 1
+                delay = self.policy.retry_delay(retry_number)
+                remaining = max(0.0, deadline - self._clock())
+                if not self.policy.permits_retry(
+                    error,
+                    attempts_made=attempts_made,
+                    remaining_deadline_seconds=remaining,
+                    delay_seconds=delay,
+                ):
+                    raise
+                self._record_metric(
+                    "record_provider_retry",
+                    lambda error_type=error_type: metrics.record_provider_retry(
+                        provider.provider_name, error_type
+                    ),
+                )
+                log_event(
+                    "provider_stream_retry_scheduled",
+                    request_id=request_id,
+                    provider=provider.provider_name,
+                    attempt=attempts_made,
+                    error_type=error_type,
+                    delay_seconds=delay,
+                    remaining_deadline_seconds=remaining,
+                )
+                await self._sleep(delay)
+            except Exception as error:
+                error_type = type(error).__name__
+                self._record_metric(
+                    "record_provider_failure",
+                    lambda error_type=error_type, attempt_started=attempt_started: metrics.record_provider_failure(
+                        provider.provider_name,
+                        selected_model,
+                        error_type,
+                        max(0.0, self._clock() - attempt_started),
+                    ),
+                )
+                raise
+            finally:
+                if iterator is not None:
+                    active_error = sys.exc_info()[0] is not None
+                    try:
+                        await iterator.aclose()
+                    except Exception:
+                        if not active_error:
+                            raise
+
     async def _invoke_before_deadline(
         self,
         operation: Awaitable[T],
@@ -191,6 +330,24 @@ class ProviderExecutor:
         try:
             return await asyncio.wait_for(
                 operation,
+                timeout=remaining_deadline_seconds,
+            )
+        except TimeoutError as exc:
+            raise ProviderTimeoutError(
+                provider_name,
+                provider_code="gateway_deadline",
+                message=f"Provider '{provider_name}' request timed out",
+            ) from exc
+
+    async def _next_before_deadline(
+        self,
+        iterator: AsyncIterator[ProviderStreamEvent],
+        provider_name: str,
+        remaining_deadline_seconds: float,
+    ) -> ProviderStreamEvent:
+        try:
+            return await asyncio.wait_for(
+                anext(iterator),
                 timeout=remaining_deadline_seconds,
             )
         except TimeoutError as exc:

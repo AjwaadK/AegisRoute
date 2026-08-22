@@ -32,11 +32,40 @@ def test_prometheus_metrics_record_generation_lifecycle() -> None:
     )
     metrics.record_provider_retry("mock", "ProviderTimeoutError")
     metrics.record_provider_fallback("mock", "backup", "ProviderTimeoutError")
+    metrics.record_stream_started()
+    metrics.record_stream_completed("mock", "mock-model-v1")
+    metrics.record_stream_failed("mock", "mock-model-v1", "post_commit")
+    metrics.record_stream_time_to_first_token("mock", "mock-model-v1", 0.2)
     metrics.record_tokens("mock", "mock-model-v1", 7, 3)
     metrics.record_estimated_cost("mock", "mock-model-v1", Decimal("0.000012"))
 
     assert sample(registry, "aegisroute_generation_requests_total") == 1
     assert sample(registry, "aegisroute_generation_completed_total") == 1
+    assert sample(registry, "aegisroute_streams_started_total") == 1
+    assert (
+        sample(
+            registry,
+            "aegisroute_streams_completed_total",
+            {"provider": "mock", "model": "mock-model-v1"},
+        )
+        == 1
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_streams_failed_total",
+            {"provider": "mock", "model": "mock-model-v1", "stage": "post_commit"},
+        )
+        == 1
+    )
+    assert (
+        sample(
+            registry,
+            "aegisroute_stream_time_to_first_token_seconds_count",
+            {"provider": "mock", "model": "mock-model-v1"},
+        )
+        == 1
+    )
     assert (
         sample(
             registry,
@@ -152,6 +181,10 @@ def test_metrics_api_accepts_only_bounded_operational_dimensions() -> None:
         "record_provider_failure",
         "record_provider_retry",
         "record_provider_fallback",
+        "record_stream_started",
+        "record_stream_completed",
+        "record_stream_failed",
+        "record_stream_time_to_first_token",
         "record_request_completed",
         "record_request_failed",
         "record_tokens",

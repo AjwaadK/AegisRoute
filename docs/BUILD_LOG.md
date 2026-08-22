@@ -229,3 +229,41 @@
 - Validation: focused accounting, provider, gateway, persistence, migration,
   retry/fallback, and metrics coverage passed; exact final full-suite and
   formatting results are recorded in the implementation handoff.
+
+## Streaming V1 — 2026-08-21
+
+- Added the provider-neutral `StreamTextDelta` and `StreamCompleted` event
+  contract plus an optional streaming-provider capability, preserving every
+  existing non-streaming provider interface and response.
+- Extended `OpenAIProviderAdapter` to translate one Responses API stream per
+  invocation through the injected reusable client. Text deltas, final observed
+  usage, SDK errors, cancellation, and upstream cleanup remain inside the
+  adapter boundary; SDK retries remain disabled by composition.
+- Added `POST /generate/stream` with AegisRoute-owned `delta`, `completed`, and
+  bounded post-commit `error` SSE events. Pre-commit terminal failures retain
+  normal HTTP error mapping; HTTP status does not change after streaming begins.
+- Added streaming methods to the existing `ProviderExecutor` and
+  `RouteExecutor`. Retry and fallback use their existing typed classifiers only
+  before the first visible text delta and share the original monotonic request
+  deadline. After that commit point, the route is locked and failures terminate
+  without retry, fallback, provider switching, or output restart.
+- Propagated client cancellation through the active iterator and closes provider
+  streams where supported. Cancellation never activates resilience behavior.
+- Preserved one logical persisted request. Successful completion records only
+  provider-observed usage and configured estimated cost; missing facts remain
+  null. Deltas and raw generated output are never persisted. Post-commit failure
+  uses failed status with `stream_failed_after_commit`; no migration was added.
+- Added bounded stream started/completed/failed counters and TTFT observation.
+  Existing provider attempt metrics and logical generation success/failure
+  semantics remain intact.
+- Added focused domain, OpenAI adapter, executor, deadline, cancellation,
+  gateway lifecycle, accounting, persistence, SSE, metrics, and non-streaming
+  regression coverage. Validation was offline and made no live OpenAI request.
+- Validation: baseline `249 passed, 14 skipped`; focused streaming and regression
+  selection `133 passed, 13 skipped`; final full suite `276 passed, 14 skipped`
+  with no warnings. Changed-file Ruff and Black checks plus `git diff --check`
+  passed. Repository-wide Ruff still reports 21 pre-existing findings outside
+  this feature's files.
+- Intentionally deferred mid-stream recovery, resumability, replay, WebSockets,
+  tool/structured/reasoning/multimodal events, chunk persistence, token
+  estimation, and additional provider adapters.

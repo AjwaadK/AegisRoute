@@ -40,6 +40,27 @@ class TokenUsage(BaseModel):
     total_tokens: int | None = Field(default=None, ge=0)
 
 
+class StreamTextDelta(BaseModel):
+    """One provider-neutral user-visible text fragment."""
+
+    model_config = ConfigDict(frozen=True)
+
+    text: str
+
+
+class StreamCompleted(BaseModel):
+    """Successful provider stream completion and any observed usage."""
+
+    model_config = ConfigDict(frozen=True)
+
+    provider: str
+    model: str
+    usage: TokenUsage | None = None
+
+
+ProviderStreamEvent = StreamTextDelta | StreamCompleted
+
+
 class ProviderResult(BaseModel):
     request_id: str
     provider: str

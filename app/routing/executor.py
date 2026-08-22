@@ -1,6 +1,6 @@
 """Bounded execution across ordered provider route candidates."""
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from time import monotonic
 
 from app.config import ProviderRouteSettings
@@ -16,7 +16,12 @@ from app.observability.metrics import ApplicationMetrics
 from app.providers.executor import ProviderExecutor
 from app.routing.contracts import RouteCandidate, RoutingDecision
 from app.routing.provider_registry import ProviderRegistry
-from app.schemas.generation import GenerateRequest, ProviderResult
+from app.schemas.generation import (
+    GenerateRequest,
+    ProviderResult,
+    ProviderStreamEvent,
+    StreamTextDelta,
+)
 
 Clock = Callable[[], float]
 
@@ -119,6 +124,98 @@ class RouteExecutor:
                 )
                 log_event(
                     "provider_fallback_scheduled",
+                    request_id=request_id,
+                    from_provider=current.provider_name,
+                    from_model=current.selected_model,
+                    to_provider=next_candidate.provider_name,
+                    to_model=next_candidate.selected_model,
+                    reason=reason,
+                    route_attempt=len(attempted) + 1,
+                    remaining_deadline_seconds=remaining,
+                )
+                current = next_candidate
+
+    async def stream(
+        self,
+        decision: RoutingDecision,
+        request: GenerateRequest,
+        request_id: str,
+        metrics: ApplicationMetrics,
+        *,
+        elapsed_request_seconds: float = 0.0,
+    ) -> AsyncIterator[ProviderStreamEvent]:
+        """Fallback across candidates only until a visible delta commits the route."""
+
+        route_started = self._clock()
+        total_deadline = self.provider_executor.policy.settings.request_deadline_seconds
+        deadline = route_started + max(0.0, total_deadline - elapsed_request_seconds)
+        attempted: set[tuple[str, str]] = set()
+        candidate_index = 0
+        current = decision.candidates[0]
+
+        while True:
+            attempted.add(current.identity)
+            provider = self.provider_registry.get(current.provider_name)
+            selected_request = request.model_copy(
+                update={"model": current.selected_model}
+            )
+            committed = False
+            try:
+                async for event in self.provider_executor.stream(
+                    provider,
+                    selected_request,
+                    request_id,
+                    current.selected_model,
+                    metrics,
+                    elapsed_request_seconds=(
+                        elapsed_request_seconds + self._clock() - route_started
+                    ),
+                ):
+                    if isinstance(event, StreamTextDelta):
+                        if not committed:
+                            log_event(
+                                "stream_committed",
+                                request_id=request_id,
+                                provider=current.provider_name,
+                                model=current.selected_model,
+                                committed=True,
+                                route_attempt=len(attempted),
+                                elapsed_seconds=self._clock() - route_started,
+                            )
+                        committed = True
+                    yield event
+                return
+            except ProviderError as error:
+                if committed or not self.policy.is_fallbackable(error):
+                    raise
+                if len(attempted) >= self.settings.max_route_attempts:
+                    raise
+
+                next_candidate, candidate_index = self._next_unique_candidate(
+                    decision.candidates,
+                    candidate_index + 1,
+                    attempted,
+                )
+                if next_candidate is None:
+                    raise
+
+                remaining = max(0.0, deadline - self._clock())
+                minimum_budget = (
+                    self.provider_executor.policy.settings.min_attempt_budget_seconds
+                )
+                if remaining < minimum_budget:
+                    raise
+
+                self.provider_registry.get(next_candidate.provider_name)
+                reason = type(error).__name__
+                self._record_fallback_metric(
+                    metrics,
+                    current.provider_name,
+                    next_candidate.provider_name,
+                    reason,
+                )
+                log_event(
+                    "provider_stream_fallback_scheduled",
                     request_id=request_id,
                     from_provider=current.provider_name,
                     from_model=current.selected_model,

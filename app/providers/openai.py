@@ -1,6 +1,8 @@
 """Single-attempt OpenAI Responses API adapter."""
 
 import asyncio
+import sys
+from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
 import openai
@@ -15,7 +17,14 @@ from app.errors import (
     ProviderUnavailableError,
 )
 from app.providers.base import ProviderAdapter
-from app.schemas.generation import GenerateRequest, ProviderResult, TokenUsage
+from app.schemas.generation import (
+    GenerateRequest,
+    ProviderResult,
+    ProviderStreamEvent,
+    StreamCompleted,
+    StreamTextDelta,
+    TokenUsage,
+)
 
 
 class ResponsesResource(Protocol):
@@ -92,6 +101,108 @@ class OpenAIProviderAdapter(ProviderAdapter):
                 if usage is not None
                 else None
             ),
+        )
+
+    async def stream(
+        self, request: GenerateRequest, request_id: str
+    ) -> AsyncIterator[ProviderStreamEvent]:
+        """Translate one OpenAI Responses stream without leaking SDK events."""
+
+        upstream = None
+        try:
+            upstream = await self._client.responses.create(
+                model=request.model,
+                input=[
+                    {"role": message.role, "content": message.content}
+                    for message in request.messages
+                ],
+                max_output_tokens=request.max_tokens,
+                temperature=request.temperature,
+                stream=True,
+            )
+            async for event in upstream:
+                event_type = getattr(event, "type", None)
+                if event_type == "response.output_text.delta":
+                    delta = getattr(event, "delta", None)
+                    if isinstance(delta, str) and delta:
+                        yield StreamTextDelta(text=delta)
+                elif event_type == "response.completed":
+                    response = getattr(event, "response", None)
+                    usage = getattr(response, "usage", None)
+                    yield StreamCompleted(
+                        provider=self.provider_name,
+                        model=request.model,
+                        usage=self._token_usage(usage),
+                    )
+                elif event_type in {
+                    "error",
+                    "response.failed",
+                    "response.incomplete",
+                }:
+                    raise self._stream_failure(event)
+        except asyncio.CancelledError:
+            raise
+        except openai.APITimeoutError as exc:
+            raise self._translated_error(ProviderTimeoutError, exc) from exc
+        except openai.RateLimitError as exc:
+            raise self._translated_error(ProviderRateLimitError, exc) from exc
+        except openai.AuthenticationError as exc:
+            raise self._translated_error(ProviderAuthenticationError, exc) from exc
+        except openai.BadRequestError as exc:
+            raise self._translated_error(ProviderInvalidRequestError, exc) from exc
+        except openai.InternalServerError as exc:
+            raise self._translated_error(ProviderInternalError, exc) from exc
+        except openai.APIConnectionError as exc:
+            raise self._translated_error(ProviderUnavailableError, exc) from exc
+        except openai.APIStatusError as exc:
+            error_type = self._status_error_type(exc.status_code)
+            raise self._translated_error(error_type, exc) from exc
+        finally:
+            if upstream is not None:
+                close = getattr(upstream, "aclose", None)
+                if callable(close):
+                    active_error = sys.exc_info()[0] is not None
+                    try:
+                        await close()
+                    except Exception:
+                        if not active_error:
+                            raise
+
+    @staticmethod
+    def _token_usage(usage: Any) -> TokenUsage | None:
+        if usage is None:
+            return None
+        return TokenUsage(
+            input_tokens=getattr(usage, "input_tokens", None),
+            output_tokens=getattr(usage, "output_tokens", None),
+            total_tokens=getattr(usage, "total_tokens", None),
+        )
+
+    @classmethod
+    def _stream_failure(cls, event: Any) -> ProviderError:
+        response = getattr(event, "response", None)
+        details = getattr(response, "error", None)
+        code = getattr(event, "code", None) or getattr(details, "code", None)
+        if not isinstance(code, str) or not code:
+            code = (
+                "incomplete"
+                if getattr(event, "type", None) == "response.incomplete"
+                else None
+            )
+        error_type: type[ProviderError]
+        if code == "rate_limit_exceeded":
+            error_type = ProviderRateLimitError
+        elif code in {"invalid_prompt", "data_residency_mismatch"}:
+            error_type = ProviderInvalidRequestError
+        elif code in {"vector_store_timeout"}:
+            error_type = ProviderTimeoutError
+        else:
+            error_type = ProviderInternalError
+        return error_type(
+            cls.provider_name,
+            provider_code=code[:128] if code is not None else None,
+            message=f"Provider '{cls.provider_name}' stream failed"
+            + (f" ({code[:128]})" if code is not None else ""),
         )
 
     @classmethod
